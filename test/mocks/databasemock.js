@@ -26,6 +26,16 @@ winston.add(new winston.transports.Console({
 	),
 }));
 
+try {
+	const fs = require('fs');
+	const configJSON = fs.readFileSync(path.join(__dirname, '../../config.json'), 'utf-8');
+	winston.info('configJSON');
+	winston.info(configJSON);
+} catch (err) {
+	console.error(err.stack);
+	throw err;
+}
+
 nconf.file({ file: path.join(__dirname, '../../config.json') });
 nconf.defaults({
 	base_dir: path.join(__dirname, '../..'),
@@ -38,6 +48,7 @@ nconf.defaults({
 const urlObject = url.parse(nconf.get('url'));
 const relativePath = urlObject.pathname !== '/' ? urlObject.pathname : '';
 nconf.set('relative_path', relativePath);
+nconf.set('asset_base_url', `${relativePath}/assets`);
 nconf.set('upload_path', path.join(nconf.get('base_dir'), nconf.get('upload_path')));
 nconf.set('upload_url', '/assets/uploads');
 nconf.set('url_parsed', urlObject);
@@ -173,20 +184,21 @@ async function setupMockDefaults() {
 	const meta = require('../../src/meta');
 	await db.emptydb();
 
-	require('../../src/groups').cache.reset();
-	require('../../src/posts/cache').reset();
-	require('../../src/cache').reset();
-	require('../../src/middleware/uploads').clearCache();
-
 	winston.info('test_database flushed');
 	await setupDefaultConfigs(meta);
-	await giveDefaultGlobalPrivileges();
+
 	await meta.configs.init();
 	meta.config.postDelay = 0;
 	meta.config.initialPostDelay = 0;
 	meta.config.newbiePostDelay = 0;
 	meta.config.autoDetectLang = 0;
 
+	require('../../src/groups').cache.reset();
+	require('../../src/posts/cache').reset();
+	require('../../src/cache').reset();
+	require('../../src/middleware/uploads').clearCache();
+	// privileges must be given after cache reset
+	await giveDefaultGlobalPrivileges();
 	await enableDefaultPlugins();
 
 	await meta.themes.set({
@@ -194,10 +206,11 @@ async function setupMockDefaults() {
 		id: 'nodebb-theme-persona',
 	});
 
-	const rimraf = util.promisify(require('rimraf'));
-	await rimraf('test/uploads');
+	const fs = require('fs');
+	await fs.promises.rm('test/uploads', { recursive: true, force: true });
 
-	const mkdirp = require('mkdirp');
+
+	const { mkdirp } = require('mkdirp');
 
 	const folders = [
 		'test/uploads',
@@ -241,6 +254,7 @@ async function enableDefaultPlugins() {
 	const defaultEnabled = [
 		'nodebb-plugin-dbsearch',
 		'nodebb-widget-essentials',
+		'nodebb-plugin-composer-default',
 	].concat(testPlugins);
 
 	winston.info('[install/enableDefaultPlugins] activating default plugins', defaultEnabled);

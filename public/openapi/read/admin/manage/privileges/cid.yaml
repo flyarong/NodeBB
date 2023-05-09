@@ -27,17 +27,13 @@ get:
                           users:
                             type: array
                             items:
-                              type: object
-                              properties:
-                                name:
-                                  type: string
+                              type: string
+                              description: Language key of the privilege name's user-friendly name
                           groups:
                             type: array
                             items:
-                              type: object
-                              properties:
-                                name:
-                                  type: string
+                              type: string
+                              description: Language key of the privilege name's user-friendly name
                       keys:
                         type: object
                         properties:
@@ -123,4 +119,6 @@ get:
                     description: A category identifier
                   group:
                     type: string
+                  isAdminPriv:
+                    type: boolean
               - $ref: ../../../../components/schemas/CommonProps.yaml#/CommonProps

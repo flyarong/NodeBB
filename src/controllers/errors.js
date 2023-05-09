@@ -3,8 +3,11 @@
 const nconf = require('nconf');
 const winston = require('winston');
 const validator = require('validator');
+const translator = require('../translator');
 const plugins = require('../plugins');
 const middleware = require('../middleware');
+const middlewareHelpers = require('../middleware/helpers');
+const helpers = require('./helpers');
 
 exports.handleURIErrors = async function handleURIErrors(err, req, res, next) {
 	// Handle cases where malformed URIs are passed in
@@ -35,10 +38,10 @@ exports.handleURIErrors = async function handleURIErrors(err, req, res, next) {
 
 // this needs to have four arguments or express treats it as `(req, res, next)`
 // don't remove `next`!
-exports.handleErrors = function handleErrors(err, req, res, next) { // eslint-disable-line no-unused-vars
+exports.handleErrors = async function handleErrors(err, req, res, next) { // eslint-disable-line no-unused-vars
 	const cases = {
 		EBADCSRFTOKEN: function () {
-			winston.error(`${req.path}\n${err.message}`);
+			winston.error(`${req.method} ${req.originalUrl}\n${err.message}`);
 			res.sendStatus(403);
 		},
 		'blacklisted-ip': function () {
@@ -46,38 +49,63 @@ exports.handleErrors = function handleErrors(err, req, res, next) { // eslint-di
 		},
 	};
 	const defaultHandler = async function () {
+		if (res.headersSent) {
+			return;
+		}
 		// Display NodeBB error page
 		const status = parseInt(err.status, 10);
 		if ((status === 302 || status === 308) && err.path) {
 			return res.locals.isAPI ? res.set('X-Redirect', err.path).status(200).json(err.path) : res.redirect(nconf.get('relative_path') + err.path);
 		}
 
-		winston.error(`${req.path}\n${err.stack}`);
-
-		res.status(status || 500);
-
 		const path = String(req.path || '');
+
+		if (path.startsWith(`${nconf.get('relative_path')}/api/v3`)) {
+			let status = 500;
+			if (err.message.startsWith('[[')) {
+				status = 400;
+				err.message = await translator.translate(err.message);
+			}
+			return helpers.formatApiResponse(status, res, err);
+		}
+
+		winston.error(`${req.method} ${req.originalUrl}\n${err.stack}`);
+		res.status(status || 500);
+		const data = {
+			path: validator.escape(path),
+			error: validator.escape(String(err.message)),
+			bodyClass: middlewareHelpers.buildBodyClass(req, res),
+		};
 		if (res.locals.isAPI) {
-			res.json({ path: validator.escape(path), error: err.message });
+			res.json(data);
 		} else {
 			await middleware.buildHeaderAsync(req, res);
-			res.render('500', { path: validator.escape(path), error: validator.escape(String(err.message)) });
+			res.render('500', data);
 		}
 	};
-
-	plugins.hooks.fire('filter:error.handle', {
-		cases: cases,
-	}, (_err, data) => {
-		if (_err) {
-			// Assume defaults
-			winston.warn(`[errors/handle] Unable to retrieve plugin handlers for errors: ${_err.message}`);
-			data.cases = cases;
-		}
-
+	const data = await getErrorHandlers(cases);
+	try {
 		if (data.cases.hasOwnProperty(err.code)) {
 			data.cases[err.code](err, req, res, defaultHandler);
 		} else {
-			defaultHandler();
+			await defaultHandler();
 		}
-	});
+	} catch (_err) {
+		winston.error(`${req.method} ${req.originalUrl}\n${_err.stack}`);
+		if (!res.headersSent) {
+			res.status(500).send(_err.message);
+		}
+	}
 };
+
+async function getErrorHandlers(cases) {
+	try {
+		return await plugins.hooks.fire('filter:error.handle', {
+			cases: cases,
+		});
+	} catch (err) {
+		// Assume defaults
+		winston.warn(`[errors/handle] Unable to retrieve plugin handlers for errors: ${err.message}`);
+		return { cases };
+	}
+}

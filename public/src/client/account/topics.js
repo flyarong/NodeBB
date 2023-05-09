@@ -1,11 +1,15 @@
 'use strict';
 
 
-define('forum/account/topics', ['forum/account/header', 'forum/infinitescroll'], function (header, infinitescroll) {
-	var AccountTopics = {};
+define('forum/account/topics', [
+	'forum/account/header',
+	'forum/infinitescroll',
+	'hooks',
+], function (header, infinitescroll, hooks) {
+	const AccountTopics = {};
 
-	var template;
-	var page = 1;
+	let template;
+	let page = 1;
 
 	AccountTopics.init = function () {
 		header.init();
@@ -25,7 +29,7 @@ define('forum/account/topics', ['forum/account/header', 'forum/infinitescroll'],
 		if (direction < 0) {
 			return;
 		}
-		var params = utils.params();
+		const params = utils.params();
 		page += 1;
 		params.page = page;
 
@@ -42,9 +46,8 @@ define('forum/account/topics', ['forum/account/header', 'forum/infinitescroll'],
 		app.parseAndTranslate(template, 'topics', { topics: topics }, function (html) {
 			$('[component="category"]').append(html);
 			html.find('.timeago').timeago();
-			app.createUserTooltips();
 			utils.makeNumbersHumanReadable(html.find('.human-readable-number'));
-			$(window).trigger('action:topics.loaded', { topics: topics });
+			hooks.fire('action:topics.loaded', { topics: topics });
 			callback();
 		});
 	}

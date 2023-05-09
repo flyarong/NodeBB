@@ -1,32 +1,247 @@
 'use strict';
 
-
-define('search', ['navigator', 'translator', 'storage'], function (nav, translator, storage) {
-	var Search = {
+define('search', ['translator', 'storage', 'hooks', 'alerts'], function (translator, storage, hooks, alerts) {
+	const Search = {
 		current: {},
 	};
 
-	Search.query = function (data, callback) {
-		// Detect if a tid was specified
-		var topicSearch = data.term.match(/^in:topic-([\d]+) /);
-		callback = callback || function () {};
-		if (!topicSearch) {
-			ajaxify.go('search?' + createQueryString(data));
-			callback();
-		} else {
-			var cleanedTerm = data.term.replace(topicSearch[0], '');
-			var tid = topicSearch[1];
-
-			if (cleanedTerm.length > 0) {
-				Search.queryTopic(tid, cleanedTerm, callback);
-			}
+	Search.init = function (searchOptions) {
+		if (!config.searchEnabled) {
+			return;
 		}
+
+		searchOptions = searchOptions || { in: config.searchDefaultInQuick || 'titles' };
+		const searchForm = $('[component="search/form"]');
+		searchForm.each((index, form) => {
+			init($(form), searchOptions);
+		});
+	};
+
+	function init(searchForm, searchOptions) {
+		const searchButton = searchForm.find('[component="search/button"]');
+		const searchFields = searchForm.find('[component="search/fields"]');
+		const searchInput = searchFields.find('input[name="query"]');
+
+		const quickSearchContainer = searchFields.find('#quick-search-container');
+		const toggleVisibility = searchFields.hasClass('hidden');
+
+		searchForm.find('.advanced-search-link').off('mousedown').on('mousedown', function () {
+			ajaxify.go('/search');
+		});
+
+		if (toggleVisibility) {
+			searchInput.off('blur').on('blur', function dismissSearch() {
+				setTimeout(function () {
+					if (!searchInput.is(':focus')) {
+						searchFields.addClass('hidden');
+						searchButton.removeClass('hidden');
+					}
+				}, 200);
+			});
+		}
+
+		searchInput.off('focus');
+
+		const searchElements = {
+			inputEl: searchInput,
+			resultEl: quickSearchContainer,
+		};
+
+		Search.enableQuickSearch({
+			searchOptions: searchOptions,
+			searchElements: searchElements,
+		});
+
+		searchButton.off('click').on('click', function (e) {
+			if (!config.loggedIn && !app.user.privileges['search:content']) {
+				alerts.alert({
+					message: '[[error:search-requires-login]]',
+					timeout: 3000,
+				});
+				ajaxify.go('login');
+				return false;
+			}
+			e.stopPropagation();
+
+			Search.showAndFocusInput(searchForm);
+			return false;
+		});
+
+		searchForm.off('submit').on('submit', function () {
+			const input = $(this).find('input[name="query"]');
+			const data = Search.getSearchPreferences();
+			data.term = input.val();
+			data.in = searchOptions.in;
+			hooks.fire('action:search.submit', {
+				searchOptions: data,
+				searchElements: searchElements,
+			});
+			Search.query(data, function () {
+				input.val('');
+				searchInput.trigger('blur');
+			});
+
+			return false;
+		});
+	}
+
+	Search.enableQuickSearch = function (options) {
+		if (!config.searchEnabled || !app.user.privileges['search:content']) {
+			return;
+		}
+
+		const searchOptions = Object.assign({ in: config.searchDefaultInQuick || 'titles' }, options.searchOptions);
+		const quickSearchResults = options.searchElements.resultEl;
+		const inputEl = options.searchElements.inputEl;
+		let oldValue = inputEl.val();
+		const filterCategoryEl = quickSearchResults.find('.filter-category');
+
+		function updateCategoryFilterName() {
+			if (ajaxify.data.template.category && ajaxify.data.cid) {
+				translator.translate('[[search:search-in-category, ' + ajaxify.data.name + ']]', function (translated) {
+					const name = $('<div></div>').html(translated).text();
+					filterCategoryEl.find('.name').text(name);
+				});
+			}
+			filterCategoryEl.toggleClass('hidden', !(ajaxify.data.template.category && ajaxify.data.cid));
+		}
+
+		function doSearch() {
+			options.searchOptions = Object.assign({}, searchOptions);
+			options.searchOptions.term = inputEl.val();
+			updateCategoryFilterName();
+
+			if (ajaxify.data.template.category && ajaxify.data.cid) {
+				if (filterCategoryEl.find('input[type="checkbox"]').is(':checked')) {
+					options.searchOptions.categories = [ajaxify.data.cid];
+					options.searchOptions.searchChildren = true;
+				}
+			}
+
+			if (!options.hideDuringSearch) {
+				quickSearchResults.removeClass('hidden').find('.quick-search-results-container').html('');
+				quickSearchResults.find('.loading-indicator').removeClass('hidden');
+			}
+
+			hooks.fire('action:search.quick.start', options);
+			options.searchOptions.searchOnly = 1;
+			Search.api(options.searchOptions, function (data) {
+				quickSearchResults.find('.loading-indicator').addClass('hidden');
+				if (!data.posts || (options.hideOnNoMatches && !data.posts.length)) {
+					return quickSearchResults.addClass('hidden').find('.quick-search-results-container').html('');
+				}
+				data.posts.forEach(function (p) {
+					const text = $('<div>' + p.content + '</div>').text();
+					const query = inputEl.val().toLowerCase().replace(/^in:topic-\d+/, '');
+					const start = Math.max(0, text.toLowerCase().indexOf(query) - 40);
+					p.snippet = utils.escapeHTML((start > 0 ? '...' : '') +
+						text.slice(start, start + 80) +
+						(text.length - start > 80 ? '...' : ''));
+				});
+				app.parseAndTranslate('partials/quick-search-results', data, function (html) {
+					if (html.length) {
+						html.find('.timeago').timeago();
+					}
+					quickSearchResults.toggleClass('hidden', !html.length || !inputEl.is(':focus'))
+						.find('.quick-search-results-container')
+						.html(html.length ? html : '');
+					const highlightEls = quickSearchResults.find(
+						'.quick-search-results .quick-search-title, .quick-search-results .snippet'
+					);
+					Search.highlightMatches(options.searchOptions.term, highlightEls);
+					hooks.fire('action:search.quick.complete', {
+						data: data,
+						options: options,
+					});
+				});
+			});
+		}
+
+		quickSearchResults.find('.filter-category input[type="checkbox"]').on('change', function () {
+			inputEl.focus();
+			doSearch();
+		});
+
+		inputEl.off('keyup').on('keyup', utils.debounce(function () {
+			if (inputEl.val().length < 3) {
+				quickSearchResults.addClass('hidden');
+				oldValue = inputEl.val();
+				return;
+			}
+			if (inputEl.val() === oldValue) {
+				return;
+			}
+			oldValue = inputEl.val();
+			if (!inputEl.is(':focus')) {
+				return quickSearchResults.addClass('hidden');
+			}
+			doSearch();
+		}, 500));
+
+		let mousedownOnResults = false;
+		quickSearchResults.on('mousedown', '.quick-search-results > *', function () {
+			$(window).one('mouseup', function () {
+				quickSearchResults.addClass('hidden');
+			});
+			mousedownOnResults = true;
+		});
+		inputEl.on('blur', function () {
+			setTimeout(function () {
+				if (!inputEl.is(':focus') && !mousedownOnResults && !quickSearchResults.hasClass('hidden')) {
+					quickSearchResults.addClass('hidden');
+				}
+			}, 200);
+		});
+
+		let ajaxified = false;
+		hooks.on('action:ajaxify.end', function () {
+			if (!ajaxify.isCold()) {
+				ajaxified = true;
+			}
+		});
+
+		inputEl.on('focus', function () {
+			mousedownOnResults = false;
+			const query = inputEl.val();
+			oldValue = query;
+			if (query && quickSearchResults.find('#quick-search-results').children().length) {
+				updateCategoryFilterName();
+				if (ajaxified) {
+					doSearch();
+					ajaxified = false;
+				} else {
+					quickSearchResults.removeClass('hidden');
+				}
+				inputEl[0].setSelectionRange(
+					query.startsWith('in:topic') ? query.indexOf(' ') + 1 : 0,
+					query.length
+				);
+			}
+		});
+
+		inputEl.off('refresh').on('refresh', function () {
+			doSearch();
+		});
+	};
+
+	Search.showAndFocusInput = function (form) {
+		form.find('[component="search/fields"]').removeClass('hidden');
+		form.find('[component="search/button"]').addClass('hidden');
+		form.find('[component="search/fields"] input[name="query"]').trigger('focus');
+	};
+
+	Search.query = function (data, callback) {
+		callback = callback || function () {};
+		ajaxify.go('search?' + createQueryString(data));
+		callback();
 	};
 
 	Search.api = function (data, callback) {
-		var apiURL = config.relative_path + '/api/search?' + createQueryString(data);
-		data.searchOnly = undefined;
-		var searchURL = config.relative_path + '/search?' + createQueryString(data);
+		const apiURL = config.relative_path + '/api/search?' + createQueryString(data);
+		if (data.hasOwnProperty('searchOnly')) {
+			delete data.searchOnly;
+		}
+		const searchURL = config.relative_path + '/search?' + createQueryString(data);
 		$.get(apiURL, function (result) {
 			result.url = searchURL;
 			callback(result);
@@ -34,63 +249,21 @@ define('search', ['navigator', 'translator', 'storage'], function (nav, translat
 	};
 
 	function createQueryString(data) {
-		var searchIn = data.in || 'titles';
-		var postedBy = data.by || '';
-		var term = data.term.replace(/^[ ?#]*/, '');
+		const searchIn = data.in || 'titles';
+		let term = data.term.replace(/^[ ?#]*/, '');
 		try {
 			term = encodeURIComponent(term);
 		} catch (e) {
-			return app.alertError('[[error:invalid-search-term]]');
+			return alerts.error('[[error:invalid-search-term]]');
 		}
 
-		var query = {
+		const query = {
+			...data,
 			term: term,
 			in: searchIn,
 		};
 
-		if (data.matchWords) {
-			query.matchWords = data.matchWords;
-		}
-
-		if (postedBy && postedBy.length && (searchIn === 'posts' || searchIn === 'titles' || searchIn === 'titlesposts')) {
-			query.by = postedBy;
-		}
-
-		if (data.categories && data.categories.length) {
-			query.categories = data.categories;
-			if (data.searchChildren) {
-				query.searchChildren = data.searchChildren;
-			}
-		}
-
-		if (data.hasTags && data.hasTags.length) {
-			query.hasTags = data.hasTags;
-		}
-
-		if (parseInt(data.replies, 10) > 0) {
-			query.replies = data.replies;
-			query.repliesFilter = data.repliesFilter || 'atleast';
-		}
-
-		if (data.timeRange) {
-			query.timeRange = data.timeRange;
-			query.timeFilter = data.timeFilter || 'newer';
-		}
-
-		if (data.sortBy) {
-			query.sortBy = data.sortBy;
-			query.sortDirection = data.sortDirection;
-		}
-
-		if (data.showAs) {
-			query.showAs = data.showAs;
-		}
-
-		if (data.searchOnly) {
-			query.searchOnly = data.searchOnly;
-		}
-
-		$(window).trigger('action:search.createQueryString', {
+		hooks.fire('action:search.createQueryString', {
 			query: query,
 			data: data,
 		});
@@ -111,14 +284,15 @@ define('search', ['navigator', 'translator', 'storage'], function (nav, translat
 			return;
 		}
 		searchQuery = utils.escapeHTML(searchQuery.replace(/^"/, '').replace(/"$/, '').trim());
-		var regexStr = searchQuery.split(' ')
+		const regexStr = searchQuery.split(' ')
+			.filter(word => word.length > 1)
 			.map(function (word) { return utils.escapeRegexChars(word); })
 			.join('|');
-		var regex = new RegExp('(' + regexStr + ')', 'gi');
+		const regex = new RegExp('(' + regexStr + ')', 'gi');
 
 		els.each(function () {
-			var result = $(this);
-			var nested = [];
+			const result = $(this);
+			const nested = [];
 
 			result.find('*').each(function () {
 				$(this).after('<!-- ' + nested.length + ' -->');
@@ -126,7 +300,7 @@ define('search', ['navigator', 'translator', 'storage'], function (nav, translat
 			});
 
 			result.html(result.html().replace(regex, function (match, p1) {
-				return '<strong class="search-match">' + p1 + '</strong>';
+				return '<strong class="search-match fw-bold text-decoration-underline">' + p1 + '</strong>';
 			}));
 
 			nested.forEach(function (nestedEl, i) {
@@ -136,104 +310,7 @@ define('search', ['navigator', 'translator', 'storage'], function (nav, translat
 			});
 		});
 
-		$('.search-result-text').find('img:not(.not-responsive)').addClass('img-responsive');
-	};
-
-	Search.queryTopic = function (tid, term) {
-		socket.emit('topics.search', {
-			tid: tid,
-			term: term,
-		}, function (err, pids) {
-			if (err) {
-				return app.alertError(err.message);
-			}
-
-			if (Array.isArray(pids)) {
-				// Sort pids numerically & store
-				Search.current = {
-					results: pids.sort(function (a, b) {
-						return a - b;
-					}),
-					tid: tid,
-					term: term,
-				};
-
-				Search.checkPagePresence(tid, function () {
-					Search.topicDOM.update(0);
-				});
-			}
-		});
-	};
-
-	Search.checkPagePresence = function (tid, callback) {
-		if (parseInt(ajaxify.data.tid, 10) !== parseInt(tid, 10)) {
-			ajaxify.go('topic/' + tid, callback);
-		} else {
-			callback();
-		}
-	};
-
-	Search.topicDOM = {
-		active: false,
-	};
-
-	Search.topicDOM.prev = function () {
-		Search.topicDOM.update((Search.current.index === 0) ? Search.current.results.length - 1 : Search.current.index - 1);
-	};
-
-	Search.topicDOM.next = function () {
-		Search.topicDOM.update((Search.current.index === Search.current.results.length - 1) ? 0 : Search.current.index + 1);
-	};
-
-	Search.topicDOM.update = function (index) {
-		var topicSearchEl = $('.topic-search');
-		Search.current.index = index;
-
-		Search.topicDOM.start();
-
-		if (Search.current.results.length > 0) {
-			topicSearchEl.find('.count').html((index + 1) + ' / ' + Search.current.results.length);
-			topicSearchEl.find('.prev, .next').removeAttr('disabled');
-			var data = {
-				pid: Search.current.results[index],
-				tid: Search.current.tid,
-				topicPostSort: config.topicPostSort,
-			};
-			socket.emit('posts.getPidIndex', data, function (err, postIndex) {
-				if (err) {
-					return app.alertError(err.message);
-				}
-
-				nav.scrollToIndex(postIndex, true);
-			});
-		} else {
-			translator.translate('[[search:no-matches]]', function (text) {
-				topicSearchEl.find('.count').html(text);
-			});
-			topicSearchEl.removeClass('hidden').find('.prev, .next').attr('disabled', 'disabled');
-		}
-	};
-
-	Search.topicDOM.start = function () {
-		$('.topic-search').removeClass('hidden');
-		if (!Search.topicDOM.active) {
-			Search.topicDOM.active = true;
-
-			// Bind to esc
-			require(['mousetrap'], function (mousetrap) {
-				mousetrap.bind('esc', Search.topicDOM.end);
-			});
-		}
-	};
-
-	Search.topicDOM.end = function () {
-		$('.topic-search').addClass('hidden').find('.prev, .next').attr('disabled', 'disabled');
-		Search.topicDOM.active = false;
-
-		// Unbind esc
-		require(['mousetrap'], function (mousetrap) {
-			mousetrap.unbind('esc', Search.topicDOM.end);
-		});
+		$('.search-result-text').find('img:not(.not-responsive)').addClass('img-fluid');
 	};
 
 	return Search;

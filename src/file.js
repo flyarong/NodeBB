@@ -4,7 +4,7 @@ const fs = require('fs');
 const nconf = require('nconf');
 const path = require('path');
 const winston = require('winston');
-const mkdirp = require('mkdirp');
+const { mkdirp } = require('mkdirp');
 const mime = require('mime');
 const graceful = require('graceful-fs');
 
@@ -107,6 +107,11 @@ file.delete = async function (path) {
 	try {
 		await fs.promises.unlink(path);
 	} catch (err) {
+		if (err.code === 'ENOENT') {
+			winston.verbose(`[file] Attempted to delete non-existent file: ${path}`);
+			return;
+		}
+
 		winston.warn(err);
 	}
 };

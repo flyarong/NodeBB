@@ -1,6 +1,6 @@
 <div class="row dashboard">
-	<div class="col-xs-12">
-		<a class="btn btn-link" href="{config.relative_path}/admin/dashboard">
+	<div class="col-12">
+		<a class="btn btn-primary mb-3" href="{config.relative_path}/admin/dashboard">
 			<i class="fa fa-chevron-left"></i>
 			[[admin/dashboard:back-to-dashboard]]
 		</a>
@@ -17,7 +17,7 @@
 				{{{ end }}}
 				{{{ each topics }}}
 				<tr>
-					<td><a href="{config.relative_path}/topics/{../slug}">{../title}</a></td>
+					<td><a href="{config.relative_path}/topic/{../slug}">{../title}</a></td>
 					<td>[[topic:posted_by, {../user.username}]]</td>
 					<td><span class="timeago" data-title="{../timestampISO}"></span></td>
 				</tr>

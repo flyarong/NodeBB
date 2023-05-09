@@ -2,25 +2,19 @@
 
 
 define('forum/users', [
-	'translator', 'benchpress', 'api', 'accounts/invite',
-], function (translator, Benchpress, api, AccountInvite) {
-	var	Users = {};
+	'benchpress', 'api', 'alerts', 'accounts/invite',
+], function (Benchpress, api, alerts, AccountInvite) {
+	const Users = {};
 
-	var searchTimeoutID = 0;
-	var searchResultCount = 0;
-
-	$(window).on('action:ajaxify.start', function () {
-		if (searchTimeoutID) {
-			clearTimeout(searchTimeoutID);
-			searchTimeoutID = 0;
-		}
-	});
+	let searchResultCount = 0;
 
 	Users.init = function () {
 		app.enterRoom('user_list');
 
-		var section = utils.params().section ? ('?section=' + utils.params().section) : '';
-		$('.nav-pills li').removeClass('active').find('a[href="' + window.location.pathname + section + '"]').parent()
+		const section = utils.param('section') ? ('?section=' + utils.param('section')) : '';
+		const navItems = $('[component="user/list/menu"]');
+		navItems.find('a').removeClass('active');
+		navItems.find('a[href="' + window.location.pathname + section + '"]')
 			.addClass('active');
 
 		Users.handleSearch();
@@ -33,28 +27,19 @@ define('forum/users', [
 
 	Users.handleSearch = function (params) {
 		searchResultCount = params && params.resultCount;
-		searchTimeoutID = 0;
-
-		$('#search-user').on('keyup', function () {
-			if (searchTimeoutID) {
-				clearTimeout(searchTimeoutID);
-				searchTimeoutID = 0;
-			}
-
-			searchTimeoutID = setTimeout(doSearch, 250);
-		});
-
-		$('.search select, .search input[type="checkbox"]').on('change', function () {
-			doSearch();
-		});
+		$('#search-user').on('keyup', utils.debounce(doSearch, 250));
+		$('.search select, .search input[type="checkbox"]').on('change', doSearch);
 	};
 
 	function doSearch() {
+		if (!ajaxify.data.template.users) {
+			return;
+		}
 		$('[component="user/search/icon"]').removeClass('fa-search').addClass('fa-spinner fa-spin');
-		var username = $('#search-user').val();
-		var activeSection = getActiveSection();
+		const username = $('#search-user').val();
+		const activeSection = getActiveSection();
 
-		var query = {
+		const query = {
 			section: activeSection,
 			page: 1,
 		};
@@ -65,7 +50,7 @@ define('forum/users', [
 
 		query.query = username;
 		query.sortBy = getSortBy();
-		var filters = [];
+		const filters = [];
 		if ($('.search .online-only').is(':checked') || (activeSection === 'online')) {
 			filters.push('online');
 		}
@@ -83,8 +68,8 @@ define('forum/users', [
 	}
 
 	function getSortBy() {
-		var sortBy;
-		var activeSection = getActiveSection();
+		let sortBy;
+		const activeSection = getActiveSection();
 		if (activeSection === 'sort-posts') {
 			sortBy = 'postcount';
 		} else if (activeSection === 'sort-reputation') {
@@ -99,7 +84,7 @@ define('forum/users', [
 	function loadPage(query) {
 		api.get('/api/users', query)
 			.then(renderSearchResults)
-			.catch(app.alertError);
+			.catch(alerts.error);
 	}
 
 	function renderSearchResults(data) {
@@ -114,13 +99,13 @@ define('forum/users', [
 		data.isAdminOrGlobalMod = app.user.isAdmin || app.user.isGlobalMod;
 		app.parseAndTranslate('users', 'users', data, function (html) {
 			$('#users-container').html(html);
-			html.find('span.timeago').timeago();
+			html.find('.timeago').timeago();
 			$('[component="user/search/icon"]').addClass('fa-search').removeClass('fa-spinner fa-spin');
 		});
 	}
 
 	function onUserStatusChange(data) {
-		var section = getActiveSection();
+		const section = getActiveSection();
 
 		if ((section.startsWith('online') || section.startsWith('users'))) {
 			updateUser(data);
@@ -132,7 +117,7 @@ define('forum/users', [
 	}
 
 	function getActiveSection() {
-		return utils.params().section || '';
+		return utils.param('section') || '';
 	}
 
 	return Users;

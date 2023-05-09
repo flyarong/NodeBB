@@ -3,5 +3,7 @@
 	"alert.confirm-restart": "هل تريد بالتأكيد إعادة تشغيل NodeBB؟",
 
 	"acp-title": "لوحة تحكم إدارة NodeBB | %1",
-	"settings-header-contents": "محتويات"
+	"settings-header-contents": "محتويات",
+	"changes-not-saved": "لم يتم حفظ التغييرات",
+	"changes-not-saved-message": "حدثت مشكلة أثناء حفظ التغييرات في NodeBB. (%1)"
 }

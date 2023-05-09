@@ -130,9 +130,10 @@ Controllers.login = async function (req, res) {
 		return helpers.redirect(res, { external: data.authentication[0].url });
 	}
 
+	// Re-auth challenge, pre-fill username
 	if (req.loggedIn) {
-		const userData = await user.getUserFields(req.uid, ['username', 'email']);
-		data.username = allowLoginWith === 'email' ? userData.email : userData.username;
+		const userData = await user.getUserFields(req.uid, ['username']);
+		data.username = userData.username;
 		data.alternate_logins = false;
 	}
 	res.render('login', data);
@@ -192,10 +193,7 @@ Controllers.registerInterstitial = async function (req, res, next) {
 		return res.redirect(`${nconf.get('relative_path')}/register`);
 	}
 	try {
-		const data = await plugins.hooks.fire('filter:register.interstitial', {
-			userData: req.session.registration,
-			interstitials: [],
-		});
+		const data = await user.interstitials.get(req, req.session.registration);
 
 		if (!data.interstitials.length) {
 			// No interstitials, redirect to home
@@ -212,7 +210,8 @@ Controllers.registerInterstitial = async function (req, res, next) {
 
 		res.render('registerComplete', {
 			title: '[[pages:registration-complete]]',
-			sections: sections,
+			register: data.userData.register,
+			sections,
 			errors,
 		});
 	} catch (err) {
@@ -220,12 +219,19 @@ Controllers.registerInterstitial = async function (req, res, next) {
 	}
 };
 
-Controllers.confirmEmail = function (req, res) {
-	user.email.confirmByCode(req.params.code, (err) => {
-		res.render('confirm', {
-			error: err ? err.message : '',
-			title: '[[pages:confirm]]',
-		});
+Controllers.confirmEmail = async (req, res, next) => {
+	try {
+		await user.email.confirmByCode(req.params.code, req.session.id);
+	} catch (e) {
+		if (e.message === '[[error:invalid-data]]') {
+			return next();
+		}
+
+		throw e;
+	}
+
+	res.render('confirm', {
+		title: '[[pages:confirm]]',
 	});
 };
 

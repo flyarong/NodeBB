@@ -15,7 +15,7 @@ const intFields = [
 	'uid', 'postcount', 'topiccount', 'reputation', 'profileviews',
 	'banned', 'banned:expire', 'email:confirmed', 'joindate', 'lastonline',
 	'lastqueuetime', 'lastposttime', 'followingCount', 'followerCount',
-	'blocksCount', 'passwordExpiry',
+	'blocksCount', 'passwordExpiry', 'mutedUntil',
 ];
 
 module.exports = function (User) {
@@ -25,7 +25,7 @@ module.exports = function (User) {
 		'aboutme', 'signature', 'uploadedpicture', 'profileviews', 'reputation',
 		'postcount', 'topiccount', 'lastposttime', 'banned', 'banned:expire',
 		'status', 'flags', 'followerCount', 'followingCount', 'cover:url',
-		'cover:position', 'groupTitle',
+		'cover:position', 'groupTitle', 'mutedUntil', 'mutedReason',
 	];
 
 	User.guestData = {
@@ -52,11 +52,15 @@ module.exports = function (User) {
 		uids = uids.map(uid => (isNaN(uid) ? 0 : parseInt(uid, 10)));
 
 		const fieldsToRemove = [];
+		fields = fields.slice();
 		ensureRequiredFields(fields, fieldsToRemove);
 
 		const uniqueUids = _.uniq(uids).filter(uid => uid > 0);
 
-		const results = await plugins.hooks.fire('filter:user.whitelistFields', { uids: uids, whitelist: fieldWhitelist.slice() });
+		const results = await plugins.hooks.fire('filter:user.whitelistFields', {
+			uids: uids,
+			whitelist: fieldWhitelist.slice(),
+		});
 		if (!fields.length) {
 			fields = results.whitelist;
 		} else {
@@ -139,6 +143,37 @@ module.exports = function (User) {
 
 	User.getUsersData = async function (uids) {
 		return await User.getUsersFields(uids, []);
+	};
+
+	User.hidePrivateData = async function (users, callerUID) {
+		let single = false;
+		if (!Array.isArray(users)) {
+			users = [users];
+			single = true;
+		}
+
+		const [userSettings, isAdmin, isGlobalModerator] = await Promise.all([
+			User.getMultipleUserSettings(users.map(user => user.uid)),
+			User.isAdministrator(callerUID),
+			User.isGlobalModerator(callerUID),
+		]);
+
+		users = await Promise.all(users.map(async (userData, idx) => {
+			const _userData = { ...userData };
+
+			const isSelf = parseInt(callerUID, 10) === parseInt(_userData.uid, 10);
+			const privilegedOrSelf = isAdmin || isGlobalModerator || isSelf;
+
+			if (!privilegedOrSelf && (!userSettings[idx].showemail || meta.config.hideEmail)) {
+				_userData.email = '';
+			}
+			if (!privilegedOrSelf && (!userSettings[idx].showfullname || meta.config.hideFullname)) {
+				_userData.fullname = '';
+			}
+			return _userData;
+		}));
+
+		return single ? users.pop() : users;
 	};
 
 	async function modifyUserData(users, requestedFields, fieldsToRemove) {
@@ -226,6 +261,10 @@ module.exports = function (User) {
 					await User.bans.unban(user.uid);
 					user.banned = false;
 				}
+			}
+
+			if (user.hasOwnProperty('mutedUntil')) {
+				user.muted = user.mutedUntil > Date.now();
 			}
 		}));
 

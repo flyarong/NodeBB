@@ -4,15 +4,13 @@ const categories = require('../categories');
 const privileges = require('../privileges');
 const user = require('../user');
 const topics = require('../topics');
-const api = require('../api');
-const sockets = require('.');
 
 const SocketCategories = module.exports;
 
 require('./categories/search')(SocketCategories);
 
 SocketCategories.getRecentReplies = async function (socket, cid) {
-	return await categories.getRecentReplies(cid, socket.uid, 4);
+	return await categories.getRecentReplies(cid, socket.uid, 0, 4);
 };
 
 SocketCategories.get = async function (socket) {
@@ -147,12 +145,6 @@ async function ignoreOrWatch(fn, socket, data) {
 
 SocketCategories.isModerator = async function (socket, cid) {
 	return await user.isModerator(socket.uid, cid);
-};
-
-SocketCategories.getCategory = async function (socket, cid) {
-	sockets.warnDeprecated(socket, 'GET /api/v3/categories/:cid');
-	return await api.categories.get(socket, { cid });
-	// return await apiController.getCategoryData(cid, socket.uid);
 };
 
 SocketCategories.loadMoreSubCategories = async function (socket, data) {

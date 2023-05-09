@@ -2,25 +2,31 @@
 
 const SocketCache = module.exports;
 
-SocketCache.clear = async function (socket, data) {
-	if (data.name === 'post') {
-		require('../../posts/cache').reset();
-	} else if (data.name === 'object') {
-		require('../../database').objectCache.reset();
-	} else if (data.name === 'group') {
-		require('../../groups').cache.reset();
-	} else if (data.name === 'local') {
-		require('../../cache').reset();
-	}
-};
+const db = require('../../database');
+const plugins = require('../../plugins');
 
-SocketCache.toggle = async function (socket, data) {
-	const caches = {
+SocketCache.clear = async function (socket, data) {
+	let caches = {
 		post: require('../../posts/cache'),
-		object: require('../../database').objectCache,
+		object: db.objectCache,
 		group: require('../../groups').cache,
 		local: require('../../cache'),
 	};
+	caches = await plugins.hooks.fire('filter:admin.cache.get', caches);
+	if (!caches[data.name]) {
+		return;
+	}
+	caches[data.name].reset();
+};
+
+SocketCache.toggle = async function (socket, data) {
+	let caches = {
+		post: require('../../posts/cache'),
+		object: db.objectCache,
+		group: require('../../groups').cache,
+		local: require('../../cache'),
+	};
+	caches = await plugins.hooks.fire('filter:admin.cache.get', caches);
 	if (!caches[data.name]) {
 		return;
 	}

@@ -2,11 +2,11 @@
 
 
 define('uploader', ['jquery-form'], function () {
-	var module = {};
+	const module = {};
 
 	module.show = function (data, callback) {
-		var fileSize = data.hasOwnProperty('fileSize') && data.fileSize !== undefined ? parseInt(data.fileSize, 10) : false;
-		app.parseAndTranslate('partials/modals/upload_file_modal', {
+		const fileSize = data.hasOwnProperty('fileSize') && data.fileSize !== undefined ? parseInt(data.fileSize, 10) : false;
+		app.parseAndTranslate('modals/upload-file', {
 			showHelp: data.hasOwnProperty('showHelp') && data.showHelp !== undefined ? data.showHelp : true,
 			fileSize: fileSize,
 			title: data.title || '[[global:upload_file]]',
@@ -19,7 +19,7 @@ define('uploader', ['jquery-form'], function () {
 				uploadModal.remove();
 			});
 
-			var uploadForm = uploadModal.find('#uploadForm');
+			const uploadForm = uploadModal.find('#uploadForm');
 			uploadForm.attr('action', data.route);
 			uploadForm.find('#params').val(JSON.stringify(data.params));
 
@@ -45,7 +45,7 @@ define('uploader', ['jquery-form'], function () {
 		uploadModal.find('#upload-progress-bar').css('width', '0%');
 		uploadModal.find('#upload-progress-box').show().removeClass('hide');
 
-		var fileInput = uploadModal.find('#fileInput');
+		const fileInput = uploadModal.find('#fileInput');
 		if (!fileInput.val()) {
 			return showAlert(uploadModal, 'error', '[[uploads:select-file-to-upload]]');
 		}
@@ -66,37 +66,26 @@ define('uploader', ['jquery-form'], function () {
 
 	module.ajaxSubmit = function (uploadModal, callback) {
 		const uploadForm = uploadModal.find('#uploadForm');
-		const v3 = uploadForm.attr('action').startsWith(config.relative_path + '/api/v3/');
 		uploadForm.ajaxSubmit({
 			headers: {
 				'x-csrf-token': config.csrf_token,
 			},
 			error: function (xhr) {
 				xhr = maybeParse(xhr);
-				showAlert(uploadModal, 'error', xhr.responseJSON ? (xhr.responseJSON.error || xhr.statusText) : 'error uploading, code : ' + xhr.status);
+				showAlert(uploadModal, 'error', xhr.responseJSON?.status?.message || `[[error:upload-error-fallback, ${xhr.status} ${xhr.statusText}]]`);
 			},
 			uploadProgress: function (event, position, total, percent) {
 				uploadModal.find('#upload-progress-bar').css('width', percent + '%');
 			},
 			success: function (response) {
-				response = maybeParse(response);
+				let images = maybeParse(response);
 
 				// Appropriately handle v3 API responses
-				if (v3) {
-					if (response.status.code === 'ok') {
-						response = response.response.images;
-					} else {
-						response = {
-							error: response.status.code,
-						};
-					}
+				if (response.hasOwnProperty('response') && response.hasOwnProperty('status') && response.status.code === 'ok') {
+					images = response.response.images;
 				}
 
-				if (response.error) {
-					return showAlert(uploadModal, 'error', response.error);
-				}
-
-				callback(response[0].url);
+				callback(images[0].url);
 
 				showAlert(uploadModal, 'success', '[[uploads:upload-success]]');
 				setTimeout(function () {

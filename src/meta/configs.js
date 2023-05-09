@@ -4,7 +4,6 @@
 const nconf = require('nconf');
 const path = require('path');
 const winston = require('winston');
-const util = require('util');
 
 const db = require('../database');
 const pubsub = require('../pubsub');
@@ -237,23 +236,13 @@ function ensureInteger(data, field, min) {
 	}
 }
 
-function lessRender(string, callback) {
-	const less = require('less');
-	less.render(string, {
-		compress: true,
-		javascriptEnabled: true,
-	}, callback);
-}
-
-const lessRenderAsync = util.promisify(lessRender);
-
 async function saveRenderedCss(data) {
 	if (!data.customCSS) {
 		return;
 	}
-
-	const lessObject = await lessRenderAsync(data.customCSS);
-	data.renderedCustomCSS = lessObject.css;
+	const sass = require('../utils').getSass();
+	const scssOutput = await sass.compileStringAsync(data.customCSS, {});
+	data.renderedCustomCSS = scssOutput.css.toString();
 }
 
 async function getLogoSize(data) {

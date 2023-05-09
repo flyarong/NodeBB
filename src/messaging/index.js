@@ -2,13 +2,16 @@
 
 
 const validator = require('validator');
-
+const nconf = require('nconf');
 const db = require('../database');
 const user = require('../user');
 const privileges = require('../privileges');
 const plugins = require('../plugins');
 const meta = require('../meta');
 const utils = require('../utils');
+const translator = require('../translator');
+
+const relative_path = nconf.get('relative_path');
 
 const Messaging = module.exports;
 
@@ -20,6 +23,7 @@ require('./rooms')(Messaging);
 require('./unread')(Messaging);
 require('./notifications')(Messaging);
 
+Messaging.messageExists = async mid => db.exists(`message:${mid}`);
 
 Messaging.getMessages = async (params) => {
 	const isNew = params.isNew || false;
@@ -47,6 +51,7 @@ Messaging.getMessages = async (params) => {
 		messageData.isOwner = messageData.fromuid === parseInt(params.uid, 10);
 		if (messageData.deleted && !messageData.isOwner) {
 			messageData.content = '[[modules:chat.message-deleted]]';
+			messageData.cleanedContent = messageData.content;
 		}
 	});
 
@@ -124,6 +129,9 @@ Messaging.getRecentChats = async (callerUid, uid, start, stop) => {
 			room.usernames = Messaging.generateUsernames(room.users, uid);
 		}
 	});
+	await Promise.all(results.roomData.map(async (room) => {
+		room.chatWithMessage = await Messaging.generateChatWithMessage(room.users, uid);
+	}));
 
 	results.roomData = results.roomData.filter(Boolean);
 	const ref = { rooms: results.roomData, nextStart: stop + 1 };
@@ -135,8 +143,40 @@ Messaging.getRecentChats = async (callerUid, uid, start, stop) => {
 	});
 };
 
-Messaging.generateUsernames = (users, excludeUid) => users.filter(user => user && parseInt(user.uid, 10) !== excludeUid)
-	.map(user => user.username).join(', ');
+Messaging.generateUsernames = function (users, excludeUid) {
+	users = users.filter(u => u && parseInt(u.uid, 10) !== excludeUid);
+	const usernames = users.map(u => u.username);
+	if (users.length > 3) {
+		return translator.compile(
+			'modules:chat.usernames-and-x-others',
+			usernames.slice(0, 2).join(', '),
+			usernames.length - 2
+		);
+	}
+	return usernames.join(', ');
+};
+
+Messaging.generateChatWithMessage = async function (users, excludeUid) {
+	users = users.filter(u => u && parseInt(u.uid, 10) !== excludeUid);
+	const usernames = users.map(u => `<a href="${relative_path}/uid/${u.uid}">${u.username}</a>`);
+	let compiled = '';
+	if (!users.length) {
+		return '[[modules:chat.no-users-in-room]]';
+	}
+	if (users.length > 3) {
+		compiled = translator.compile(
+			'modules:chat.chat-with-usernames-and-x-others',
+			usernames.slice(0, 2).join(', '),
+			usernames.length - 2
+		);
+	} else {
+		compiled = translator.compile(
+			'modules:chat.chat-with-usernames',
+			usernames.join(', '),
+		);
+	}
+	return utils.decodeHTMLEntities(await translator.translate(compiled));
+};
 
 Messaging.getTeaser = async (uid, roomId) => {
 	const mid = await Messaging.getLatestUndeletedMessage(uid, roomId);
@@ -187,32 +227,36 @@ Messaging.getLatestUndeletedMessage = async (uid, roomId) => {
 };
 
 Messaging.canMessageUser = async (uid, toUid) => {
-	if (meta.config.disableChat || uid <= 0 || uid === toUid) {
+	if (meta.config.disableChat || uid <= 0) {
 		throw new Error('[[error:chat-disabled]]');
 	}
 
 	if (parseInt(uid, 10) === parseInt(toUid, 10)) {
-		throw new Error('[[error:cant-chat-with-yourself');
+		throw new Error('[[error:cant-chat-with-yourself]]');
 	}
+	const [exists, canChat] = await Promise.all([
+		user.exists(toUid),
+		privileges.global.can('chat', uid),
+		checkReputation(uid),
+	]);
 
-	const exists = await user.exists(toUid);
 	if (!exists) {
 		throw new Error('[[error:no-user]]');
 	}
 
-	const canChat = await privileges.global.can('chat', uid);
 	if (!canChat) {
 		throw new Error('[[error:no-privileges]]');
 	}
 
-	const results = await utils.promiseParallel({
-		settings: user.getSettings(toUid),
-		isAdmin: user.isAdministrator(uid),
-		isModerator: user.isModeratorOfAnyCategory(uid),
-		isFollowing: user.isFollowing(toUid, uid),
-	});
+	const [settings, isAdmin, isModerator, isFollowing, isBlocked] = await Promise.all([
+		user.getSettings(toUid),
+		user.isAdministrator(uid),
+		user.isModeratorOfAnyCategory(uid),
+		user.isFollowing(toUid, uid),
+		user.blocks.is(uid, toUid),
+	]);
 
-	if (results.settings.restrictChat && !results.isAdmin && !results.isModerator && !results.isFollowing) {
+	if (isBlocked || (settings.restrictChat && !isAdmin && !isModerator && !isFollowing)) {
 		throw new Error('[[error:chat-restricted]]');
 	}
 
@@ -227,12 +271,16 @@ Messaging.canMessageRoom = async (uid, roomId) => {
 		throw new Error('[[error:chat-disabled]]');
 	}
 
-	const inRoom = await Messaging.isUserInRoom(uid, roomId);
+	const [inRoom, canChat] = await Promise.all([
+		Messaging.isUserInRoom(uid, roomId),
+		privileges.global.can('chat', uid),
+		checkReputation(uid),
+	]);
+
 	if (!inRoom) {
 		throw new Error('[[error:not-in-room]]');
 	}
 
-	const canChat = await privileges.global.can('chat', uid);
 	if (!canChat) {
 		throw new Error('[[error:no-privileges]]');
 	}
@@ -242,6 +290,15 @@ Messaging.canMessageRoom = async (uid, roomId) => {
 		roomId: roomId,
 	});
 };
+
+async function checkReputation(uid) {
+	if (meta.config['min:rep:chat'] > 0) {
+		const reputation = await user.getUserField(uid, 'reputation');
+		if (meta.config['min:rep:chat'] > reputation) {
+			throw new Error(`[[error:not-enough-reputation-to-chat, ${meta.config['min:rep:chat']}]]`);
+		}
+	}
+}
 
 Messaging.hasPrivateChat = async (uid, withUid) => {
 	if (parseInt(uid, 10) === parseInt(withUid, 10)) {
@@ -271,6 +328,17 @@ Messaging.hasPrivateChat = async (uid, withUid) => {
 	}
 
 	return roomId;
+};
+
+Messaging.canViewMessage = async (mids, roomId, uid) => {
+	let single = false;
+	if (!Array.isArray(mids) && isFinite(mids)) {
+		mids = [mids];
+		single = true;
+	}
+
+	const canView = await db.isSortedSetMembers(`uid:${uid}:chat:room:${roomId}:mids`, mids);
+	return single ? canView.pop() : canView;
 };
 
 require('../promisify')(Messaging);

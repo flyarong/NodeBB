@@ -1,6 +1,7 @@
 
 'use strict';
 
+const winston = require('winston');
 const _ = require('lodash');
 
 const db = require('../database');
@@ -11,11 +12,14 @@ const plugins = require('../plugins');
 const batch = require('../batch');
 
 module.exports = function (Categories) {
-	Categories.getRecentReplies = async function (cid, uid, count) {
-		if (!parseInt(count, 10)) {
-			return [];
+	Categories.getRecentReplies = async function (cid, uid, start, stop) {
+		// backwards compatibility, treat start as count
+		if (stop === undefined && start > 0) {
+			winston.warn('[Categories.getRecentReplies] 3 params deprecated please use Categories.getRecentReplies(cid, uid, start, stop)');
+			stop = start - 1;
+			start = 0;
 		}
-		let pids = await db.getSortedSetRevRange(`cid:${cid}:pids`, 0, count - 1);
+		let pids = await db.getSortedSetRevRange(`cid:${cid}:pids`, start, stop);
 		pids = await privileges.posts.filter('topics:read', pids, uid);
 		return await posts.getPostSummaryByPids(pids, uid, { stripTags: true });
 	};
@@ -153,7 +157,7 @@ module.exports = function (Categories) {
 
 	function getPostsRecursive(category, posts) {
 		if (Array.isArray(category.posts)) {
-			category.posts.forEach(p =>	posts.push(p));
+			category.posts.forEach(p => posts.push(p));
 		}
 
 		category.children.forEach(child => getPostsRecursive(child, posts));
@@ -176,7 +180,7 @@ module.exports = function (Categories) {
 				bulkRemove.push([`cid:${oldCid}:uid:${post.uid}:pids`, post.pid]);
 				bulkRemove.push([`cid:${oldCid}:uid:${post.uid}:pids:votes`, post.pid]);
 				bulkAdd.push([`cid:${cid}:uid:${post.uid}:pids`, post.timestamp, post.pid]);
-				if (post.votes > 0) {
+				if (post.votes > 0 || post.votes < 0) {
 					bulkAdd.push([`cid:${cid}:uid:${post.uid}:pids:votes`, post.votes, post.pid]);
 				}
 			});

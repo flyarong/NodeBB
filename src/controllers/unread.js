@@ -9,16 +9,20 @@ const pagination = require('../pagination');
 const user = require('../user');
 const topics = require('../topics');
 const helpers = require('./helpers');
+const privileges = require('../privileges');
 
 const unreadController = module.exports;
+const relative_path = nconf.get('relative_path');
 
 unreadController.get = async function (req, res) {
-	const { cid } = req.query;
+	const { cid, tag } = req.query;
 	const filter = req.query.filter || '';
 
-	const [categoryData, userSettings, isPrivileged] = await Promise.all([
+	const [categoryData, tagData, userSettings, canPost, isPrivileged] = await Promise.all([
 		helpers.getSelectedCategory(cid),
+		helpers.getSelectedTag(tag),
 		user.getSettings(req.uid),
+		privileges.categories.canPostTopic(req.uid),
 		user.isPrivileged(req.uid),
 	]);
 
@@ -27,6 +31,7 @@ unreadController.get = async function (req, res) {
 	const stop = start + userSettings.topicsPerPage - 1;
 	const data = await topics.getUnreadTopics({
 		cid: cid,
+		tag: tag,
 		uid: req.uid,
 		start: start,
 		stop: stop,
@@ -34,7 +39,16 @@ unreadController.get = async function (req, res) {
 		query: req.query,
 	});
 
-	data.title = meta.config.homePageTitle || '[[pages:home]]';
+	const isDisplayedAsHome = !(req.originalUrl.startsWith(`${relative_path}/api/unread`) || req.originalUrl.startsWith(`${relative_path}/unread`));
+	const baseUrl = isDisplayedAsHome ? '' : 'unread';
+
+	if (isDisplayedAsHome) {
+		data.title = meta.config.homePageTitle || '[[pages:home]]';
+	} else {
+		data.title = '[[pages:unread]]';
+		data.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[unread:title]]' }]);
+	}
+
 	data.pageCount = Math.max(1, Math.ceil(data.topicCount / userSettings.topicsPerPage));
 	data.pagination = pagination.create(page, data.pageCount, req.query);
 	helpers.addLinkTags({ url: 'unread', res: req.res, tags: data.pagination.rel });
@@ -43,19 +57,18 @@ unreadController.get = async function (req, res) {
 		req.query.page = Math.max(1, Math.min(data.pageCount, page));
 		return helpers.redirect(res, `/unread?${querystring.stringify(req.query)}`);
 	}
+	data.canPost = canPost;
 	data.showSelect = true;
 	data.showTopicTools = isPrivileged;
-	data.allCategoriesUrl = `unread${helpers.buildQueryString(req.query, 'cid', '')}`;
+	data.allCategoriesUrl = `${baseUrl}${helpers.buildQueryString(req.query, 'cid', '')}`;
 	data.selectedCategory = categoryData.selectedCategory;
 	data.selectedCids = categoryData.selectedCids;
 	data.selectCategoryLabel = '[[unread:mark_as_read]]';
-	if (req.originalUrl.startsWith(`${nconf.get('relative_path')}/api/unread`) || req.originalUrl.startsWith(`${nconf.get('relative_path')}/unread`)) {
-		data.title = '[[pages:unread]]';
-		data.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[unread:title]]' }]);
-	}
-
-	data.filters = helpers.buildFilters('unread', filter, req.query);
-
+	data.selectCategoryIcon = 'fa-inbox';
+	data.showCategorySelectLabel = true;
+	data.selectedTag = tagData.selectedTag;
+	data.selectedTags = tagData.selectedTags;
+	data.filters = helpers.buildFilters(baseUrl, filter, req.query);
 	data.selectedFilter = data.filters.find(filter => filter && filter.selected);
 
 	res.render('unread', data);

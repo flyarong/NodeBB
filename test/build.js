@@ -3,16 +3,21 @@
 const path = require('path');
 const fs = require('fs');
 const assert = require('assert');
-const mkdirp = require('mkdirp');
-const rimraf = require('rimraf');
-const async = require('async');
+const { mkdirp } = require('mkdirp');
 
 const db = require('./mocks/databasemock');
 const file = require('../src/file');
 
 describe('minifier', () => {
+	const testPath = path.join(__dirname, '../test/build');
 	before(async () => {
-		await mkdirp(path.join(__dirname, '../build/test'));
+		await mkdirp(testPath);
+	});
+
+	after(async () => {
+		const files = await file.walk(testPath);
+		await Promise.all(files.map(async path => fs.promises.rm(path)));
+		await fs.promises.rmdir(testPath);
 	});
 
 	const minifier = require('../src/meta/minifier');
@@ -21,18 +26,18 @@ describe('minifier', () => {
 		path.resolve(__dirname, './files/2.js'),
 	].map(script => ({
 		srcPath: script,
-		destPath: path.resolve(__dirname, '../build/test', path.basename(script)),
+		destPath: path.resolve(__dirname, '../test/build', path.basename(script)),
 		filename: path.basename(script),
 	}));
 
 	it('.js.bundle() should concat scripts', (done) => {
-		const destPath = path.resolve(__dirname, '../build/test/concatenated.js');
+		const destPath = path.resolve(__dirname, '../test/build/concatenated.js');
 
 		minifier.js.bundle({
 			files: scripts,
 			destPath: destPath,
 			filename: 'concatenated.js',
-		}, false, false, (err) => {
+		}, false, (err) => {
 			assert.ifError(err);
 
 			assert(file.existsSync(destPath));
@@ -53,84 +58,42 @@ describe('minifier', () => {
 			done();
 		});
 	});
-	it('.js.bundle() should minify scripts', (done) => {
-		const destPath = path.resolve(__dirname, '../build/test/minified.js');
-
-		minifier.js.bundle({
-			files: scripts,
-			destPath: destPath,
-			filename: 'minified.js',
-		}, true, false, (err) => {
-			assert.ifError(err);
-
-			assert(file.existsSync(destPath));
-
-			assert.strictEqual(
-				fs.readFileSync(destPath).toString(),
-				'(function(n,o){n.doStuff=function(){o.body.innerHTML="Stuff has been done"}})(window,document);function foo(n,o){return\'The person known as "\'+n+\'" is \'+o+" years old"}' +
-				'\n//# sourceMappingURL=minified.js.map'
-			);
-			done();
-		});
-	});
-
-	it('.js.minifyBatch() should minify each script', (done) => {
-		minifier.js.minifyBatch(scripts, false, (err) => {
-			assert.ifError(err);
-
-			assert(file.existsSync(scripts[0].destPath));
-			assert(file.existsSync(scripts[1].destPath));
-
-			fs.readFile(scripts[0].destPath, (err, buffer) => {
-				assert.ifError(err);
-				assert.strictEqual(
-					buffer.toString(),
-					'(function(n,o){n.doStuff=function(){o.body.innerHTML="Stuff has been done"}})(window,document);' +
-					'\n//# sourceMappingURL=1.js.map'
-				);
-				done();
-			});
-		});
-	});
 
 	const styles = [
-		'@import (inline) "./1.css";',
-		'@import "./2.less";',
+		'@import "./1";',
+		'@import "./2.scss";',
 	].join('\n');
 	const paths = [
 		path.resolve(__dirname, './files'),
 	];
 	it('.css.bundle() should concat styles', (done) => {
-		minifier.css.bundle(styles, paths, false, false, (err, bundle) => {
+		minifier.css.bundle(styles, paths, false, false, 'ltr', (err, bundle) => {
 			assert.ifError(err);
-			assert.strictEqual(bundle.code, '.help { margin: 10px; } .yellow { background: yellow; }\n.help {\n  display: block;\n}\n.help .blue {\n  background: blue;\n}\n');
+			assert.strictEqual(bundle.ltr.code, '.help {\n  margin: 10px;\n}\n\n.yellow {\n  background: yellow;\n}\n\n.help {\n  display: block;\n}\n.help .blue {\n  background: blue;\n}');
 			done();
 		});
 	});
 
 	it('.css.bundle() should minify styles', (done) => {
-		minifier.css.bundle(styles, paths, true, false, (err, bundle) => {
+		minifier.css.bundle(styles, paths, true, false, 'ltr', (err, bundle) => {
 			assert.ifError(err);
-			assert.strictEqual(bundle.code, '.help{margin:10px}.yellow{background:#ff0}.help{display:block}.help .blue{background:#00f}');
+			assert.strictEqual(bundle.ltr.code, '.help{margin:10px}.yellow{background:#ff0}.help{display:block}.help .blue{background:#00f}');
 			done();
 		});
 	});
 });
 
-describe('Build', (done) => {
+describe('Build', () => {
 	const build = require('../src/meta/build');
 
-	before((done) => {
-		async.parallel([
-			async.apply(rimraf, path.join(__dirname, '../build/public')),
-			async.apply(db.sortedSetAdd, 'plugins:active', Date.now(), 'nodebb-plugin-markdown'),
-		], done);
+	before(async () => {
+		await fs.promises.rm(path.join(__dirname, '../build/public'), { recursive: true, force: true });
+		await db.sortedSetAdd('plugins:active', Date.now(), 'nodebb-plugin-markdown');
 	});
 
 	it('should build plugin static dirs', (done) => {
 		build.build(['plugin static dirs'], (err) => {
 			assert.ifError(err);
-			assert(file.existsSync(path.join(__dirname, '../build/public/plugins/nodebb-plugin-dbsearch/dbsearch')));
 			done();
 		});
 	});
@@ -138,9 +101,8 @@ describe('Build', (done) => {
 	it('should build requirejs modules', (done) => {
 		build.build(['requirejs modules'], (err) => {
 			assert.ifError(err);
-			const filename = path.join(__dirname, '../build/public/src/modules/Chart.js');
+			const filename = path.join(__dirname, '../build/public/src/modules/alerts.js');
 			assert(file.existsSync(filename));
-			assert(fs.readFileSync(filename).toString().startsWith('/*!\n * Chart.js'));
 			done();
 		});
 	});
@@ -148,7 +110,7 @@ describe('Build', (done) => {
 	it('should build client js bundle', (done) => {
 		build.build(['client js bundle'], (err) => {
 			assert.ifError(err);
-			const filename = path.join(__dirname, '../build/public/nodebb.min.js');
+			const filename = path.join(__dirname, '../build/public/scripts-client.js');
 			assert(file.existsSync(filename));
 			assert(fs.readFileSync(filename).length > 1000);
 			done();
@@ -158,7 +120,7 @@ describe('Build', (done) => {
 	it('should build admin js bundle', (done) => {
 		build.build(['admin js bundle'], (err) => {
 			assert.ifError(err);
-			const filename = path.join(__dirname, '../build/public/acp.min.js');
+			const filename = path.join(__dirname, '../build/public/scripts-admin.js');
 			assert(file.existsSync(filename));
 			assert(fs.readFileSync(filename).length > 1000);
 			done();
@@ -170,7 +132,6 @@ describe('Build', (done) => {
 			assert.ifError(err);
 			const filename = path.join(__dirname, '../build/public/client.css');
 			assert(file.existsSync(filename));
-			assert(fs.readFileSync(filename).toString().startsWith('/*! normalize.css'));
 			done();
 		});
 	});
@@ -180,15 +141,28 @@ describe('Build', (done) => {
 			assert.ifError(err);
 			const filename = path.join(__dirname, '../build/public/admin.css');
 			assert(file.existsSync(filename));
-			const adminCSS = fs.readFileSync(filename).toString();
-			if (global.env === 'production') {
-				assert(adminCSS.startsWith('@charset "UTF-8";') || adminCSS.startsWith('@import url'));
-			} else {
-				assert(adminCSS.startsWith('.recent-replies'));
-			}
 			done();
 		});
 	});
+
+
+	/* disabled, doesn't work on gh actions in prod mode
+	it('should build bundle files', function (done) {
+		this.timeout(0);
+		build.buildAll(async (err) => {
+			assert.ifError(err);
+			assert(file.existsSync(path.join(__dirname, '../build/webpack/nodebb.min.js')));
+			assert(file.existsSync(path.join(__dirname, '../build/webpack/admin.min.js')));
+			let { res, body } = await helpers.request('GET', `/assets/nodebb.min.js`, {});
+			assert(res.statusCode, 200);
+			assert(body);
+			({ res, body } = await helpers.request('GET', `/assets/admin.min.js`, {}));
+			assert(res.statusCode, 200);
+			assert(body);
+			done();
+		});
+	});
+	*/
 
 	it('should build templates', function (done) {
 		this.timeout(0);

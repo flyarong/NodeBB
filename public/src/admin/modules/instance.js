@@ -1,15 +1,12 @@
 'use strict';
 
 define('admin/modules/instance', [
-	// need to preload the compiled alert template
-	// otherwise it can be unloaded when rebuild & restart is run
-	// the client can't fetch the template file, resulting in an error
-	config.relative_path + '/assets/templates/alert.js',
-], function () {
-	var instance = {};
+	'alerts',
+], function (alerts) {
+	const instance = {};
 
 	instance.rebuildAndRestart = function (callback) {
-		app.alert({
+		alerts.alert({
 			alert_id: 'instance_rebuild_and_restart',
 			type: 'info',
 			title: 'Rebuilding... <i class="fa fa-spin fa-refresh"></i>',
@@ -17,7 +14,7 @@ define('admin/modules/instance', [
 		});
 
 		$(window).one('action:reconnected', function () {
-			app.alert({
+			alerts.alert({
 				alert_id: 'instance_rebuild_and_restart',
 				type: 'success',
 				title: '<i class="fa fa-check"></i> Success',
@@ -31,7 +28,7 @@ define('admin/modules/instance', [
 		});
 
 		socket.emit('admin.reload', function () {
-			app.alert({
+			alerts.alert({
 				alert_id: 'instance_rebuild_and_restart',
 				type: 'info',
 				title: 'Build Complete!... <i class="fa fa-spin fa-refresh"></i>',
@@ -41,7 +38,7 @@ define('admin/modules/instance', [
 	};
 
 	instance.restart = function (callback) {
-		app.alert({
+		alerts.alert({
 			alert_id: 'instance_restart',
 			type: 'info',
 			title: 'Restarting... <i class="fa fa-spin fa-refresh"></i>',
@@ -49,7 +46,7 @@ define('admin/modules/instance', [
 		});
 
 		$(window).one('action:reconnected', function () {
-			app.alert({
+			alerts.alert({
 				alert_id: 'instance_restart',
 				type: 'success',
 				title: '<i class="fa fa-check"></i> Success',

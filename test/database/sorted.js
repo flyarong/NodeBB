@@ -1,7 +1,7 @@
 'use strict';
 
 
-const	async = require('async');
+const async = require('async');
 const assert = require('assert');
 const db = require('../mocks/databasemock');
 
@@ -334,7 +334,7 @@ describe('Sorted Set methods', () => {
 		});
 
 		it('should work with big arrays (length > 100) ', async function () {
-			this.timeout(50000);
+			this.timeout(100000);
 			const keys = [];
 			for (let i = 0; i < 400; i++) {
 				/* eslint-disable no-await-in-loop */
@@ -451,6 +451,12 @@ describe('Sorted Set methods', () => {
 					done();
 				});
 			});
+		});
+
+		it('should return elements if min/max are numeric strings', async () => {
+			await db.sortedSetAdd('zsetstringminmax', [1, 2, 3, 4, 5], ['value1', 'value2', 'value3', 'value4', 'value5']);
+			const results = await db.getSortedSetRevRangeByScore('zsetstringminmax', 0, -1, '3', '3');
+			assert.deepStrictEqual(results, ['value3']);
 		});
 	});
 
@@ -996,6 +1002,11 @@ describe('Sorted Set methods', () => {
 				done();
 			});
 		});
+
+		it('should return empty array if sets is empty', async () => {
+			const result = await db.getSortedSetRevUnion({ sets: [], start: 0, stop: -1 });
+			assert.deepStrictEqual(result, []);
+		});
 	});
 
 	describe('sortedSetIncrBy()', () => {
@@ -1024,6 +1035,47 @@ describe('Sorted Set methods', () => {
 				});
 			});
 		});
+
+		it('should increment fields of sorted sets with a single call', async () => {
+			const data = await db.sortedSetIncrByBulk([
+				['sortedIncrBulk1', 1, 'value1'],
+				['sortedIncrBulk2', 2, 'value2'],
+				['sortedIncrBulk3', 3, 'value3'],
+				['sortedIncrBulk3', 4, 'value4'],
+			]);
+			assert.deepStrictEqual(data, [1, 2, 3, 4]);
+			assert.deepStrictEqual(
+				await db.getSortedSetRangeWithScores('sortedIncrBulk1', 0, -1),
+				[{ value: 'value1', score: 1 }],
+			);
+			assert.deepStrictEqual(
+				await db.getSortedSetRangeWithScores('sortedIncrBulk2', 0, -1),
+				[{ value: 'value2', score: 2 }],
+			);
+			assert.deepStrictEqual(
+				await db.getSortedSetRangeWithScores('sortedIncrBulk3', 0, -1),
+				[
+					{ value: 'value3', score: 3 },
+					{ value: 'value4', score: 4 },
+				],
+			);
+		});
+
+		it('should increment the same field', async () => {
+			const data1 = await db.sortedSetIncrByBulk([
+				['sortedIncrBulk5', 5, 'value5'],
+			]);
+
+			const data2 = await db.sortedSetIncrByBulk([
+				['sortedIncrBulk5', 5, 'value5'],
+			]);
+			assert.deepStrictEqual(
+				await db.getSortedSetRangeWithScores('sortedIncrBulk5', 0, -1),
+				[
+					{ value: 'value5', score: 10 },
+				],
+			);
+		});
 	});
 
 
@@ -1042,6 +1094,11 @@ describe('Sorted Set methods', () => {
 					done();
 				});
 			});
+		});
+
+		it('should not think the sorted set exists if the last element is removed', async () => {
+			await db.sortedSetRemove('sorted3', 'value1');
+			assert.strictEqual(await db.exists('sorted3'), false);
 		});
 
 		it('should remove multiple values from multiple keys', (done) => {
@@ -1118,6 +1175,29 @@ describe('Sorted Set methods', () => {
 			]);
 			const members = await db.getSortedSetsMembers(['bulkRemove1', 'bulkRemove2']);
 			assert.deepStrictEqual(members, [[], []]);
+		});
+
+		it('should not remove wrong elements in bulk remove', async () => {
+			await db.sortedSetAddBulk([
+				['bulkRemove4', 1, 'value1'],
+				['bulkRemove4', 2, 'value2'],
+				['bulkRemove4', 3, 'value4'],
+				['bulkRemove5', 1, 'value1'],
+				['bulkRemove5', 2, 'value2'],
+				['bulkRemove5', 3, 'value3'],
+			]);
+			await db.sortedSetRemoveBulk([
+				['bulkRemove4', 'value1'],
+				['bulkRemove4', 'value3'],
+				['bulkRemove5', 'value1'],
+				['bulkRemove5', 'value4'],
+			]);
+			const members = await Promise.all([
+				db.getSortedSetRange('bulkRemove4', 0, -1),
+				db.getSortedSetRange('bulkRemove5', 0, -1),
+			]);
+			assert.deepStrictEqual(members[0], ['value2', 'value4']);
+			assert.deepStrictEqual(members[1], ['value2', 'value3']);
 		});
 	});
 
@@ -1422,7 +1502,7 @@ describe('Sorted Set methods', () => {
 			await db.sortedSetAdd('sortedSetLexSearch', [0, 0, 0], ['baris:usakli:1', 'baris usakli:2', 'baris soner:3']);
 			const query = 'baris:';
 			const min = query;
-			const max = query.substr(0, query.length - 1) + String.fromCharCode(query.charCodeAt(query.length - 1) + 1);
+			const max = query.slice(0, -1) + String.fromCharCode(query.charCodeAt(query.length - 1) + 1);
 			const result = await db.getSortedSetRangeByLex('sortedSetLexSearch', min, max, 0, -1);
 			assert.deepStrictEqual(result, ['baris:usakli:1']);
 		});

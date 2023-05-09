@@ -1,45 +1,45 @@
 'use strict';
 
-define('categorySearch', function () {
-	var categorySearch = {};
+define('categorySearch', ['alerts', 'bootstrap'], function (alerts, bootstrap) {
+	const categorySearch = {};
 
 	categorySearch.init = function (el, options) {
-		var categoriesList = null;
+		let categoriesList = null;
 		options = options || {};
 		options.privilege = options.privilege || 'topics:read';
 		options.states = options.states || ['watching', 'notwatching', 'ignoring'];
 
-		var localCategories = [];
+		let localCategories = [];
 		if (Array.isArray(options.localCategories)) {
 			localCategories = options.localCategories.map(c => ({ ...c }));
 		}
 		options.selectedCids = options.selectedCids || ajaxify.data.selectedCids || [];
 
-		var searchEl = el.find('[component="category-selector-search"]');
+		const searchEl = el.find('[component="category-selector-search"]');
 		if (!searchEl.length) {
 			return;
 		}
 
-		var toggleVisibility = searchEl.parent('[component="category/dropdown"]').length > 0 ||
+		const toggleVisibility = searchEl.parent('[component="category/dropdown"]').length > 0 ||
 			searchEl.parent('[component="category-selector"]').length > 0;
 
 		el.on('show.bs.dropdown', function () {
 			if (toggleVisibility) {
-				el.find('.dropdown-toggle').addClass('hidden');
+				el.find('.dropdown-toggle').css({ visibility: 'hidden' });
 				searchEl.removeClass('hidden');
+				searchEl.css({
+					'z-index': el.find('.dropdown-toggle').css('z-index') + 1,
+				});
 			}
 
 			function doSearch() {
-				var val = searchEl.find('input').val();
+				const val = searchEl.find('input').val();
 				if (val.length > 1 || (!val && !categoriesList)) {
 					loadList(val, function (categories) {
 						categoriesList = categoriesList || categories;
 						renderList(categories);
 					});
 				} else if (!val && categoriesList) {
-					categoriesList.forEach(function (c) {
-						c.selected = options.selectedCids.includes(c.cid);
-					});
 					renderList(categoriesList);
 				}
 			}
@@ -53,12 +53,14 @@ define('categorySearch', function () {
 		});
 
 		el.on('shown.bs.dropdown', function () {
-			searchEl.find('input').focus();
+			if (!['xs', 'sm'].includes(utils.findBootstrapEnvironment())) {
+				searchEl.find('input').focus();
+			}
 		});
 
 		el.on('hide.bs.dropdown', function () {
 			if (toggleVisibility) {
-				el.find('.dropdown-toggle').removeClass('hidden');
+				el.find('.dropdown-toggle').css({ visibility: 'inherit' });
 				searchEl.addClass('hidden');
 			}
 
@@ -66,9 +68,10 @@ define('categorySearch', function () {
 			searchEl.find('input').off('keyup');
 		});
 
-		function loadList(query, callback) {
+		function loadList(search, callback) {
 			socket.emit('categories.categorySearch', {
-				query: query,
+				search: search,
+				query: utils.params(),
 				parentCid: options.parentCid || 0,
 				selectedCids: options.selectedCids,
 				privilege: options.privilege,
@@ -76,22 +79,31 @@ define('categorySearch', function () {
 				showLinks: options.showLinks,
 			}, function (err, categories) {
 				if (err) {
-					return app.alertError(err);
+					return alerts.error(err);
 				}
 				callback(localCategories.concat(categories));
 			});
 		}
 
 		function renderList(categories) {
+			const selectedCids = options.selectedCids.map(String);
+			categories.forEach(function (c) {
+				c.selected = selectedCids.includes(String(c.cid));
+			});
 			app.parseAndTranslate(options.template, {
 				categoryItems: categories.slice(0, 200),
 				selectedCategory: ajaxify.data.selectedCategory,
 				allCategoriesUrl: ajaxify.data.allCategoriesUrl,
 			}, function (html) {
 				el.find('[component="category/list"]')
-					.replaceWith(html.find('[component="category/list"]'));
+					.html(html.find('[component="category/list"]').html());
 				el.find('[component="category/list"] [component="category/no-matches"]')
 					.toggleClass('hidden', !!categories.length);
+
+				const bsDropdown = bootstrap.Dropdown.getInstance(el.find('.dropdown-toggle').get(0));
+				if (bsDropdown) {
+					bsDropdown.update();
+				}
 			});
 		}
 	};

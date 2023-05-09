@@ -5,9 +5,9 @@ const user = require('../../user');
 const posts = require('../../posts');
 const topics = require('../../topics');
 const categories = require('../../categories');
+const privileges = require('../../privileges');
 const pagination = require('../../pagination');
 const helpers = require('../helpers');
-const accountHelpers = require('./helpers');
 const plugins = require('../../plugins');
 const utils = require('../../utils');
 
@@ -49,11 +49,40 @@ const templateToData = {
 	},
 	'account/best': {
 		type: 'posts',
-		noItemsFoundKey: '[[user:has_no_voted_posts]]',
+		noItemsFoundKey: '[[user:has_no_best_posts]]',
 		crumb: '[[global:best]]',
 		getSets: async function (callerUid, userData) {
 			const cids = await categories.getCidsByPrivilege('categories:cid', callerUid, 'topics:read');
 			return cids.map(c => `cid:${c}:uid:${userData.uid}:pids:votes`);
+		},
+		getTopics: async (sets, req, start, stop) => {
+			let pids = await db.getSortedSetRevRangeByScore(sets, start, stop - start + 1, '+inf', 1);
+			pids = await privileges.posts.filter('topics:read', pids, req.uid);
+			const postObjs = await posts.getPostSummaryByPids(pids, req.uid, { stripTags: false });
+			return { posts: postObjs, nextStart: stop + 1 };
+		},
+		getItemCount: async (sets) => {
+			const counts = await Promise.all(sets.map(set => db.sortedSetCount(set, 1, '+inf')));
+			return counts.reduce((acc, val) => acc + val, 0);
+		},
+	},
+	'account/controversial': {
+		type: 'posts',
+		noItemsFoundKey: '[[user:has_no_controversial_posts]]',
+		crumb: '[[global:controversial]]',
+		getSets: async function (callerUid, userData) {
+			const cids = await categories.getCidsByPrivilege('categories:cid', callerUid, 'topics:read');
+			return cids.map(c => `cid:${c}:uid:${userData.uid}:pids:votes`);
+		},
+		getTopics: async (sets, req, start, stop) => {
+			let pids = await db.getSortedSetRangeByScore(sets, start, stop - start + 1, '-inf', -1);
+			pids = await privileges.posts.filter('topics:read', pids, req.uid);
+			const postObjs = await posts.getPostSummaryByPids(pids, req.uid, { stripTags: false });
+			return { posts: postObjs, nextStart: stop + 1 };
+		},
+		getItemCount: async (sets) => {
+			const counts = await Promise.all(sets.map(set => db.sortedSetCount(set, '-inf', -1)));
+			return counts.reduce((acc, val) => acc + val, 0);
 		},
 	},
 	'account/watched': {
@@ -128,6 +157,10 @@ postsController.getBestPosts = async function (req, res, next) {
 	await getPostsFromUserSet('account/best', req, res, next);
 };
 
+postsController.getControversialPosts = async function (req, res, next) {
+	await getPostsFromUserSet('account/controversial', req, res, next);
+};
+
 postsController.getWatchedTopics = async function (req, res, next) {
 	await getPostsFromUserSet('account/watched', req, res, next);
 };
@@ -140,28 +173,25 @@ postsController.getTopics = async function (req, res, next) {
 	await getPostsFromUserSet('account/topics', req, res, next);
 };
 
-async function getPostsFromUserSet(template, req, res, callback) {
+async function getPostsFromUserSet(template, req, res) {
 	const data = templateToData[template];
 	const page = Math.max(1, parseInt(req.query.page, 10) || 1);
 
-	const [userData, settings] = await Promise.all([
-		accountHelpers.getUserDataByUserSlug(req.params.userslug, req.uid, req.query),
+	const [{ username, userslug }, settings] = await Promise.all([
+		user.getUserFields(res.locals.uid, ['username', 'userslug']),
 		user.getSettings(req.uid),
 	]);
 
-	if (!userData) {
-		return callback();
-	}
 	const itemsPerPage = data.type === 'topics' ? settings.topicsPerPage : settings.postsPerPage;
 	const start = (page - 1) * itemsPerPage;
 	const stop = start + itemsPerPage - 1;
-	const sets = await data.getSets(req.uid, userData);
+	const sets = await data.getSets(req.uid, { uid: res.locals.uid, username, userslug });
 	let result;
 	if (plugins.hooks.hasListeners('filter:account.getPostsFromUserSet')) {
 		result = await plugins.hooks.fire('filter:account.getPostsFromUserSet', {
 			req: req,
 			template: template,
-			userData: userData,
+			userData: { uid: res.locals.uid, username, userslug },
 			settings: settings,
 			data: data,
 			start: start,
@@ -171,34 +201,36 @@ async function getPostsFromUserSet(template, req, res, callback) {
 		});
 	} else {
 		result = await utils.promiseParallel({
-			itemCount: settings.usePagination ? db.sortedSetsCardSum(sets) : 0,
+			itemCount: getItemCount(sets, data, settings),
 			itemData: getItemData(sets, data, req, start, stop),
 		});
 	}
 	const { itemCount, itemData } = result;
-	userData[data.type] = itemData[data.type];
-	userData.nextStart = itemData.nextStart;
+
+	const payload = {};
+	payload[data.type] = itemData[data.type];
+	payload.nextStart = itemData.nextStart;
 
 	const pageCount = Math.ceil(itemCount / itemsPerPage);
-	userData.pagination = pagination.create(page, pageCount, req.query);
+	payload.pagination = pagination.create(page, pageCount, req.query);
 
-	userData.noItemsFoundKey = data.noItemsFoundKey;
-	userData.title = `[[pages:${template}, ${userData.username}]]`;
-	userData.breadcrumbs = helpers.buildBreadcrumbs([{ text: userData.username, url: `/user/${userData.userslug}` }, { text: data.crumb }]);
-	userData.showSort = template === 'account/watched';
+	payload.noItemsFoundKey = data.noItemsFoundKey;
+	payload.title = `[[pages:${template}, ${username}]]`;
+	payload.breadcrumbs = helpers.buildBreadcrumbs([{ text: username, url: `/user/${userslug}` }, { text: data.crumb }]);
+	payload.showSort = template === 'account/watched';
 	const baseUrl = (req.baseUrl + req.path.replace(/^\/api/, ''));
-	userData.sortOptions = [
+	payload.sortOptions = [
 		{ url: `${baseUrl}?sort=votes`, name: '[[global:votes]]' },
 		{ url: `${baseUrl}?sort=posts`, name: '[[global:posts]]' },
 		{ url: `${baseUrl}?sort=views`, name: '[[global:views]]' },
 		{ url: `${baseUrl}?sort=lastpost`, name: '[[global:lastpost]]' },
 		{ url: `${baseUrl}?sort=firstpost`, name: '[[global:firstpost]]' },
 	];
-	userData.sortOptions.forEach((option) => {
+	payload.sortOptions.forEach((option) => {
 		option.selected = option.url.includes(`sort=${req.query.sort}`);
 	});
 
-	res.render(template, userData);
+	res.render(template, payload);
 }
 
 async function getItemData(sets, data, req, start, stop) {
@@ -207,4 +239,14 @@ async function getItemData(sets, data, req, start, stop) {
 	}
 	const method = data.type === 'topics' ? topics.getTopicsFromSet : posts.getPostSummariesFromSet;
 	return await method(sets, req.uid, start, stop);
+}
+
+async function getItemCount(sets, data, settings) {
+	if (!settings.usePagination) {
+		return 0;
+	}
+	if (data.getItemCount) {
+		return await data.getItemCount(sets);
+	}
+	return await db.sortedSetsCardSum(sets);
 }

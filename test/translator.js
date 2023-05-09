@@ -1,8 +1,9 @@
 'use strict';
 
+// For tests relating to Transifex configuration, check i18n.js
 
 const assert = require('assert');
-const shim = require('../public/src/modules/translator');
+const shim = require('../src/translator');
 
 const { Translator } = shim;
 const db = require('./mocks/databasemock');
@@ -33,6 +34,11 @@ describe('Translator shim', () => {
 		it('should translate empty string properly', async () => {
 			const translated = await shim.translate('', 'en-GB');
 			assert.strictEqual(translated, '');
+		});
+
+		it('should not allow path traversal', async () => {
+			const t = await shim.translate('[[../../../../config:secret]]');
+			assert.strictEqual(t, 'secret');
 		});
 	});
 });
@@ -123,7 +129,7 @@ describe('new Translator(language)', () => {
 
 			const key = '[[global:403.login, <strong>test</strong>]]';
 			return translator.translate(key).then((translated) => {
-				assert.strictEqual(translated, 'Perhaps you should <a href=\'&lt;strong&gt;test&lt;/strong&gt;/login\'>try logging in</a>?');
+				assert.strictEqual(translated, 'Perhaps you should <a class="alert-link" href=\'&lt;strong&gt;test&lt;/strong&gt;/login\'>try logging in</a>?');
 			});
 		});
 

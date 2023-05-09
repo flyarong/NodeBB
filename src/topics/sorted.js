@@ -118,6 +118,7 @@ module.exports = function (Topics) {
 			old: sortOld,
 			posts: sortPopular,
 			votes: sortVotes,
+			views: sortViews,
 		};
 		const sortFn = sortMap[params.sort] || sortRecent;
 
@@ -156,6 +157,10 @@ module.exports = function (Topics) {
 		return b.viewcount - a.viewcount;
 	}
 
+	function sortViews(a, b) {
+		return b.viewcount - a.viewcount;
+	}
+
 	async function filterTids(tids, params) {
 		const { filter } = params;
 		const { uid } = params;
@@ -169,7 +174,7 @@ module.exports = function (Topics) {
 		}
 
 		tids = await privileges.topics.filterTids('topics:read', tids, uid);
-		let topicData = await Topics.getTopicsFields(tids, ['uid', 'tid', 'cid']);
+		let topicData = await Topics.getTopicsFields(tids, ['uid', 'tid', 'cid', 'tags']);
 		const topicCids = _.uniq(topicData.map(topic => topic.cid)).filter(Boolean);
 
 		async function getIgnoredCids() {
@@ -187,11 +192,13 @@ module.exports = function (Topics) {
 		topicData = filtered;
 
 		const cids = params.cids && params.cids.map(String);
+		const { tags } = params;
 		tids = topicData.filter(t => (
 			t &&
 			t.cid &&
 			!isCidIgnored[t.cid] &&
-			(!cids || cids.includes(String(t.cid)))
+			(!cids || cids.includes(String(t.cid))) &&
+			(!tags.length || tags.every(tag => t.tags.find(topicTag => topicTag.value === tag)))
 		)).map(t => t.tid);
 
 		const result = await plugins.hooks.fire('filter:topics.filterSortedTids', { tids: tids, params: params });

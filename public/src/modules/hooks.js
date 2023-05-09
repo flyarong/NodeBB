@@ -4,9 +4,40 @@ define('hooks', [], () => {
 	const Hooks = {
 		loaded: {},
 		temporary: new Set(),
+		runOnce: new Set(),
 		deprecated: {
-			'action:script.load': 'filter:script.load',	// 👋 @ 1.18.0
+
 		},
+		logs: {
+			_collection: new Set(),
+		},
+	};
+
+	Hooks.logs.collect = () => {
+		if (Hooks.logs._collection) {
+			return;
+		}
+
+		Hooks.logs._collection = new Set();
+	};
+
+	Hooks.logs.log = (...args) => {
+		if (Hooks.logs._collection) {
+			Hooks.logs._collection.add(args);
+		} else {
+			console.debug.apply(console, args);
+		}
+	};
+
+	Hooks.logs.flush = () => {
+		if (Hooks.logs._collection && Hooks.logs._collection.size) {
+			Hooks.logs._collection.forEach((args) => {
+				console.debug.apply(console, args);
+			});
+			console.groupEnd();
+		}
+
+		delete Hooks.logs._collection;
 	};
 
 	Hooks.register = (hookName, method) => {
@@ -26,14 +57,19 @@ define('hooks', [], () => {
 			console.groupEnd();
 		}
 
-		console.debug(`[hooks] Registered ${hookName}`, method);
+		Hooks.logs.log(`[hooks] Registered ${hookName}`, method);
+		return Hooks;
 	};
 	Hooks.on = Hooks.register;
+	Hooks.one = (hookName, method) => {
+		Hooks.runOnce.add({ hookName, method });
+		return Hooks.register(hookName, method);
+	};
 
 	// registerPage/onPage takes care of unregistering the listener on ajaxify
 	Hooks.registerPage = (hookName, method) => {
 		Hooks.temporary.add({ hookName, method });
-		Hooks.register(hookName, method);
+		return Hooks.register(hookName, method);
 	};
 	Hooks.onPage = Hooks.registerPage;
 	Hooks.register('action:ajaxify.start', () => {
@@ -46,10 +82,12 @@ define('hooks', [], () => {
 	Hooks.unregister = (hookName, method) => {
 		if (Hooks.loaded[hookName] && Hooks.loaded[hookName].has(method)) {
 			Hooks.loaded[hookName].delete(method);
-			console.debug(`[hooks] Unregistered ${hookName}`, method);
+			Hooks.logs.log(`[hooks] Unregistered ${hookName}`, method);
 		} else {
-			console.debug(`[hooks] Unregistration of ${hookName} failed, passed-in method is not a registered listener or the hook itself has no listeners, currently.`);
+			Hooks.logs.log(`[hooks] Unregistration of ${hookName} failed, passed-in method is not a registered listener or the hook itself has no listeners, currently.`);
 		}
+
+		return Hooks;
 	};
 	Hooks.off = Hooks.unregister;
 
@@ -88,34 +126,46 @@ define('hooks', [], () => {
 		$(window).trigger(hookName, data);
 	};
 
-	const _fireStaticHook = (hookName, data) => {
+	const _fireStaticHook = async (hookName, data) => {
 		if (!Hooks.hasListeners(hookName)) {
 			return Promise.resolve(data);
 		}
 
 		const listeners = Array.from(Hooks.loaded[hookName]);
-		return Promise.allSettled(listeners.map((listener) => {
+		await Promise.allSettled(listeners.map((listener) => {
 			try {
 				return listener(data);
 			} catch (e) {
 				return _onHookError(e, listener);
 			}
-		})).then(() => Promise.resolve(data));
+		}));
+
+		return await Promise.resolve(data);
 	};
 
 	Hooks.fire = (hookName, data) => {
 		const type = hookName.split(':').shift();
-
+		let result;
 		switch (type) {
 			case 'filter':
-				return _fireFilterHook(hookName, data);
+				result = _fireFilterHook(hookName, data);
+				break;
 
 			case 'action':
-				return _fireActionHook(hookName, data);
+				result = _fireActionHook(hookName, data);
+				break;
 
 			case 'static':
-				return _fireStaticHook(hookName, data);
+				result = _fireStaticHook(hookName, data);
+				break;
 		}
+		Hooks.runOnce.forEach((pair) => {
+			if (pair.hookName === hookName) {
+				Hooks.unregister(hookName, pair.method);
+				Hooks.runOnce.delete(pair);
+			}
+		});
+		return result;
 	};
 
 	return Hooks;

@@ -19,14 +19,14 @@ module.exports = function (User) {
 			data.email = String(data.email).trim();
 		}
 
+		await User.isDataValid(data);
+
+		await lock(data.username, '[[error:username-taken]]');
+		if (data.email && data.email !== data.username) {
+			await lock(data.email, '[[error:email-taken]]');
+		}
+
 		try {
-			await lock(data.username, '[[error:username-taken]]');
-			if (data.email) {
-				await lock(data.email, '[[error:email-taken]]');
-			}
-
-			await User.isDataValid(data);
-
 			return await create(data);
 		} finally {
 			await db.deleteObjectFields('locks', [data.username, data.email]);
@@ -46,7 +46,6 @@ module.exports = function (User) {
 		let userData = {
 			username: data.username,
 			userslug: data.userslug,
-			email: data.email || '',
 			joindate: timestamp,
 			lastonline: timestamp,
 			status: 'online',
@@ -77,9 +76,6 @@ module.exports = function (User) {
 		const isFirstUser = uid === 1;
 		userData.uid = uid;
 
-		if (isFirstUser) {
-			userData['email:confirmed'] = 1;
-		}
 		await db.setObject(`user:${uid}`, userData);
 
 		const bulkAdd = [
@@ -93,33 +89,30 @@ module.exports = function (User) {
 			['users:reputation', 0, userData.uid],
 		];
 
-		if (userData.email) {
-			bulkAdd.push(['email:uid', userData.uid, userData.email.toLowerCase()]);
-			bulkAdd.push(['email:sorted', 0, `${userData.email.toLowerCase()}:${userData.uid}`]);
-			bulkAdd.push([`user:${userData.uid}:emails`, timestamp, `${userData.email}:${timestamp}`]);
-		}
-
 		if (userData.fullname) {
 			bulkAdd.push(['fullname:sorted', 0, `${userData.fullname.toLowerCase()}:${userData.uid}`]);
 		}
-
-		const groupsToJoin = ['registered-users'].concat(
-			isFirstUser ? 'verified-users' : 'unverified-users'
-		);
 
 		await Promise.all([
 			db.incrObjectField('global', 'userCount'),
 			analytics.increment('registrations'),
 			db.sortedSetAddBulk(bulkAdd),
-			groups.join(groupsToJoin, userData.uid),
+			groups.join(['registered-users', 'unverified-users'], userData.uid),
 			User.notifications.sendWelcomeNotification(userData.uid),
 			storePassword(userData.uid, data.password),
 			User.updateDigestSetting(userData.uid, meta.config.dailyDigestFreq),
 		]);
 
-		if (userData.email && userData.uid > 1 && meta.config.requireEmailConfirmation) {
-			User.email.sendValidationEmail(userData.uid, {
-				email: userData.email,
+		if (data.email && isFirstUser) {
+			await User.setUserField(uid, 'email', data.email);
+			await User.email.confirmByUid(userData.uid);
+		}
+
+		if (data.email && userData.uid > 1) {
+			await User.email.sendValidationEmail(userData.uid, {
+				email: data.email,
+				template: 'welcome',
+				subject: `[[email:welcome-to, ${meta.config.title || meta.config.browserTitle || 'NodeBB'}]]`,
 			}).catch(err => winston.error(`[user.create] Validation email failed to send\n[emailer.send] ${err.stack}`));
 		}
 		if (userNameChanged) {

@@ -1,26 +1,26 @@
 'use strict';
 
 define('groupSearch', function () {
-	var groupSearch = {};
+	const groupSearch = {};
 
 	groupSearch.init = function (el) {
 		if (utils.isTouchDevice()) {
 			return;
 		}
-		var searchEl = el.find('[component="group-selector-search"]');
+		const searchEl = el.find('[component="group-selector-search"]');
 		if (!searchEl.length) {
 			return;
 		}
-		var toggleVisibility = searchEl.parent('[component="group-selector"]').length > 0;
+		const toggleVisibility = searchEl.parent('[component="group-selector"]').length > 0;
 
-		var groupEls = el.find('[component="group-list"] [data-name]');
+		const groupEls = el.find('[component="group-list"] [data-name]');
 		el.on('show.bs.dropdown', function () {
 			function updateList() {
-				var val = searchEl.find('input').val().toLowerCase();
-				var noMatch = true;
+				const val = searchEl.find('input').val().toLowerCase();
+				let noMatch = true;
 				groupEls.each(function () {
-					var liEl = $(this);
-					var isMatch = liEl.attr('data-name').toLowerCase().indexOf(val) !== -1;
+					const liEl = $(this);
+					const isMatch = liEl.attr('data-name').toLowerCase().indexOf(val) !== -1;
 					if (noMatch && isMatch) {
 						noMatch = false;
 					}
@@ -31,8 +31,11 @@ define('groupSearch', function () {
 				el.find('[component="group-list"] [component="group-no-matches"]').toggleClass('hidden', !noMatch);
 			}
 			if (toggleVisibility) {
-				el.find('.dropdown-toggle').addClass('hidden');
+				el.find('.dropdown-toggle').css({ visibility: 'hidden' });
 				searchEl.removeClass('hidden');
+				searchEl.css({
+					'z-index': el.find('.dropdown-toggle').css('z-index') + 1,
+				});
 			}
 
 			searchEl.on('click', function (ev) {
@@ -49,7 +52,7 @@ define('groupSearch', function () {
 
 		el.on('hide.bs.dropdown', function () {
 			if (toggleVisibility) {
-				el.find('.dropdown-toggle').removeClass('hidden');
+				el.find('.dropdown-toggle').css({ visibility: 'inherit' });
 				searchEl.addClass('hidden');
 			}
 			searchEl.off('click').find('input').off('keyup');

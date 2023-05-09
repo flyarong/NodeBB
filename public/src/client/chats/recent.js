@@ -1,18 +1,41 @@
 'use strict';
 
 
-define('forum/chats/recent', function () {
-	var recent = {};
+define('forum/chats/recent', ['alerts', 'api'], function (alerts, api) {
+	const recent = {};
 
 	recent.init = function () {
 		require(['forum/chats'], function (Chats) {
-			$('[component="chat/recent"]').on('click', '[component="chat/recent/room"]', function () {
-				Chats.switchChat($(this).attr('data-roomid'));
-			});
+			$('[component="chat/recent"]')
+				.on('click', '[component="chat/recent/room"]', function (e) {
+					e.stopPropagation();
+					e.preventDefault();
+					const roomId = this.getAttribute('data-roomid');
+					Chats.switchChat(roomId);
+				})
+				.on('click', '.mark-read', function (e) {
+					e.stopPropagation();
+					const chatEl = this.closest('[data-roomid]');
+					const state = !chatEl.classList.contains('unread'); // this is the new state
+					const roomId = chatEl.getAttribute('data-roomid');
+					api[state ? 'put' : 'del'](`/chats/${roomId}/state`, {}).catch((err) => {
+						alerts.error(err);
+
+						// Revert on failure
+						chatEl.classList[state ? 'remove' : 'add']('unread');
+						this.querySelector('.unread').classList[state ? 'add' : 'remove']('hidden');
+						this.querySelector('.read').classList[!state ? 'add' : 'remove']('hidden');
+					});
+
+					// Immediate feedback
+					chatEl.classList[state ? 'add' : 'remove']('unread');
+					this.querySelector('.unread').classList[!state ? 'add' : 'remove']('hidden');
+					this.querySelector('.read').classList[state ? 'add' : 'remove']('hidden');
+				});
 
 			$('[component="chat/recent"]').on('scroll', function () {
-				var $this = $(this);
-				var bottom = ($this[0].scrollHeight - $this.height()) * 0.9;
+				const $this = $(this);
+				const bottom = ($this[0].scrollHeight - $this.height()) * 0.9;
 				if ($this.scrollTop() > bottom) {
 					loadMoreRecentChats();
 				}
@@ -21,7 +44,7 @@ define('forum/chats/recent', function () {
 	};
 
 	function loadMoreRecentChats() {
-		var recentChats = $('[component="chat/recent"]');
+		const recentChats = $('[component="chat/recent"]');
 		if (recentChats.attr('loading')) {
 			return;
 		}
@@ -31,7 +54,7 @@ define('forum/chats/recent', function () {
 			after: recentChats.attr('data-nextstart'),
 		}, function (err, data) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
 			if (data && data.rooms.length) {

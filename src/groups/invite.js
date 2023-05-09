@@ -9,14 +9,23 @@ const plugins = require('../plugins');
 const notifications = require('../notifications');
 
 module.exports = function (Groups) {
+	Groups.getPending = async function (groupName) {
+		return await Groups.getUsersFromSet(`group:${groupName}:pending`, ['username', 'userslug', 'picture']);
+	};
+
+	Groups.getInvites = async function (groupName) {
+		return await Groups.getUsersFromSet(`group:${groupName}:invited`, ['username', 'userslug', 'picture']);
+	};
+
 	Groups.requestMembership = async function (groupName, uid) {
 		await inviteOrRequestMembership(groupName, uid, 'request');
-		const username = await user.getUserField(uid, 'username');
+		const { displayname } = await user.getUserFields(uid, ['username']);
+
 		const [notification, owners] = await Promise.all([
 			notifications.create({
 				type: 'group-request-membership',
-				bodyShort: `[[groups:request.notification_title, ${username}]]`,
-				bodyLong: `[[groups:request.notification_text, ${username}, ${groupName}]]`,
+				bodyShort: `[[groups:request.notification_title, ${displayname}]]`,
+				bodyLong: `[[groups:request.notification_text, ${displayname}, ${groupName}]]`,
 				nid: `group:${groupName}:uid:${uid}:request`,
 				path: `/groups/${slugify(groupName)}`,
 				from: uid,
@@ -45,7 +54,7 @@ module.exports = function (Groups) {
 			groupNames = [groupNames];
 		}
 		const sets = [];
-		groupNames.forEach(groupName =>	sets.push(`group:${groupName}:pending`, `group:${groupName}:invited`));
+		groupNames.forEach(groupName => sets.push(`group:${groupName}:pending`, `group:${groupName}:invited`));
 		await db.setsRemove(sets, uid);
 	};
 
@@ -82,8 +91,8 @@ module.exports = function (Groups) {
 
 		const set = type === 'invite' ? `group:${groupName}:invited` : `group:${groupName}:pending`;
 		await db.setAdd(set, uids);
-		const hookName = type === 'invite' ? 'action:group.inviteMember' : 'action:group.requestMembership';
-		plugins.hooks.fire(hookName, {
+		const hookName = type === 'invite' ? 'inviteMember' : 'requestMembership';
+		plugins.hooks.fire(`action:group.${hookName}`, {
 			groupName: groupName,
 			uids: uids,
 		});
@@ -106,11 +115,4 @@ module.exports = function (Groups) {
 		const map = _.zipObject(checkUids, isMembers);
 		return isArray ? uids.map(uid => !!map[uid]) : !!map[uids[0]];
 	}
-
-	Groups.getPending = async function (groupName) {
-		if (!groupName) {
-			return [];
-		}
-		return await db.getSetMembers(`group:${groupName}:pending`);
-	};
 };

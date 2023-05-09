@@ -66,6 +66,7 @@ Tags.parse = async (req, data, meta, link) => {
 	}, {
 		rel: 'manifest',
 		href: `${relative_path}/manifest.webmanifest`,
+		crossorigin: `use-credentials`,
 	}];
 
 	if (plugins.hooks.hasListeners('filter:search.query')) {
@@ -114,27 +115,27 @@ Tags.parse = async (req, data, meta, link) => {
 		}, {
 			rel: 'icon',
 			sizes: '36x36',
-			href: `${relative_path}/assets/images/touch/192.png`,
+			href: `${relative_path}/assets/images/touch/36.png`,
 		}, {
 			rel: 'icon',
 			sizes: '48x48',
-			href: `${relative_path}/assets/images/touch/144.png`,
-		}, {
-			rel: 'icon',
-			sizes: '72x72',
-			href: `${relative_path}/assets/images/touch/96.png`,
-		}, {
-			rel: 'icon',
-			sizes: '96x96',
-			href: `${relative_path}/assets/images/touch/72.png`,
-		}, {
-			rel: 'icon',
-			sizes: '144x144',
 			href: `${relative_path}/assets/images/touch/48.png`,
 		}, {
 			rel: 'icon',
+			sizes: '72x72',
+			href: `${relative_path}/assets/images/touch/72.png`,
+		}, {
+			rel: 'icon',
+			sizes: '96x96',
+			href: `${relative_path}/assets/images/touch/96.png`,
+		}, {
+			rel: 'icon',
+			sizes: '144x144',
+			href: `${relative_path}/assets/images/touch/144.png`,
+		}, {
+			rel: 'icon',
 			sizes: '192x192',
-			href: `${relative_path}/assets/images/touch/36.png`,
+			href: `${relative_path}/assets/images/touch/192.png`,
 		}, {
 			rel: 'icon',
 			sizes: '512x512',
@@ -154,13 +155,16 @@ Tags.parse = async (req, data, meta, link) => {
 		}
 
 		if (!tag.noEscape) {
-			tag.content = utils.escapeHTML(String(tag.content));
+			const attributes = Object.keys(tag);
+			attributes.forEach((attr) => {
+				tag[attr] = utils.escapeHTML(String(tag[attr]));
+			});
 		}
 
 		return tag;
 	});
 
-	addSiteOGImage(meta);
+	await addSiteOGImage(meta);
 
 	addIfNotExists(meta, 'property', 'og:title', Meta.config.title || 'NodeBB');
 	const ogUrl = url + (req.originalUrl !== '/' ? stripRelativePath(req.originalUrl) : '');
@@ -168,12 +172,18 @@ Tags.parse = async (req, data, meta, link) => {
 	addIfNotExists(meta, 'name', 'description', Meta.config.description);
 	addIfNotExists(meta, 'property', 'og:description', Meta.config.description);
 
-	link = results.links.links.concat(link || []);
+	link = results.links.links.concat(link || []).map((tag) => {
+		if (!tag.noEscape) {
+			const attributes = Object.keys(tag);
+			attributes.forEach((attr) => {
+				tag[attr] = utils.escapeHTML(String(tag[attr]));
+			});
+		}
 
-	return {
-		meta: meta,
-		link: link,
-	};
+		return tag;
+	});
+
+	return { meta, link };
 };
 
 function addIfNotExists(meta, keyName, tagName, value) {
@@ -201,49 +211,59 @@ function stripRelativePath(url) {
 	return url;
 }
 
-function addSiteOGImage(meta) {
+async function addSiteOGImage(meta) {
 	const key = Meta.config['og:image'] ? 'og:image' : 'brand:logo';
 	let ogImage = stripRelativePath(Meta.config[key] || '');
 	if (ogImage && !ogImage.startsWith('http')) {
 		ogImage = url + ogImage;
 	}
 
-	if (ogImage) {
-		meta.push({
-			property: 'og:image',
-			content: ogImage,
-			noEscape: true,
-		}, {
-			property: 'og:image:url',
-			content: ogImage,
-			noEscape: true,
-		});
+	const { images } = await plugins.hooks.fire('filter:meta.addSiteOGImage', {
+		images: [{
+			url: ogImage || `${url}/assets/images/logo@3x.png`,
+			width: ogImage ? Meta.config[`${key}:width`] : 963,
+			height: ogImage ? Meta.config[`${key}:height`] : 225,
+		}],
+	});
 
-		if (Meta.config[`${key}:width`] && Meta.config[`${key}:height`]) {
-			meta.push({
-				property: 'og:image:width',
-				content: String(Meta.config[`${key}:width`]),
-			}, {
-				property: 'og:image:height',
-				content: String(Meta.config[`${key}:height`]),
-			});
+	const properties = ['url', 'secure_url', 'type', 'width', 'height', 'alt'];
+	images.forEach((image) => {
+		for (const property of properties) {
+			if (image.hasOwnProperty(property)) {
+				switch (property) {
+					case 'url': {
+						meta.push({
+							property: 'og:image',
+							content: image.url,
+							noEscape: true,
+						}, {
+							property: 'og:image:url',
+							content: image.url,
+							noEscape: true,
+						});
+						break;
+					}
+
+					case 'secure_url': {
+						meta.push({
+							property: `og:${property}`,
+							content: image[property],
+							noEscape: true,
+						});
+						break;
+					}
+
+					case 'type':
+					case 'alt':
+					case 'width':
+					case 'height': {
+						meta.push({
+							property: `og:image:${property}`,
+							content: String(image[property]),
+						});
+					}
+				}
+			}
 		}
-	} else {
-		// Push fallback logo
-		meta.push({
-			property: 'og:image',
-			content: `${url}/assets/images/logo@3x.png`,
-			noEscape: true,
-		}, {
-			property: 'og:image:url',
-			content: `${url}/assets/images/logo@3x.png`,
-			noEscape: true,
-		}, {
-			property: 'og:image:width',
-			content: '963',
-		}, {
-			property: 'og:image:height',
-			content: '225',
-		});
-	}
+	});
 }

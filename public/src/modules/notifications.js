@@ -5,32 +5,37 @@ define('notifications', [
 	'translator',
 	'components',
 	'navigator',
-	'benchpress',
 	'tinycon',
 	'hooks',
-], function (translator, components, navigator, Benchpress, Tinycon, hooks) {
-	var Notifications = {};
+	'alerts',
+], function (translator, components, navigator, Tinycon, hooks, alerts) {
+	const Notifications = {};
 
-	var unreadNotifs = {};
+	let unreadNotifs = {};
 
-	const _addShortTimeagoString = ({ notifications: notifs }) => new Promise((resolve) => {
+	const _addTimeagoString = ({ notifications: notifs }) => new Promise((resolve) => {
+		for (let i = 0; i < notifs.length; i += 1) {
+			notifs[i].timeagoLong = $.timeago(new Date(parseInt(notifs[i].datetime, 10)));
+		}
 		translator.toggleTimeagoShorthand(function () {
-			for (var i = 0; i < notifs.length; i += 1) {
+			for (let i = 0; i < notifs.length; i += 1) {
 				notifs[i].timeago = $.timeago(new Date(parseInt(notifs[i].datetime, 10)));
+				notifs[i].timeagoShort = notifs[i].timeago;
 			}
 			translator.toggleTimeagoShorthand();
 			resolve({ notifications: notifs });
 		});
 	});
-	hooks.on('filter:notifications.load', _addShortTimeagoString);
+	hooks.on('filter:notifications.load', _addTimeagoString);
 
-	Notifications.loadNotifications = function (notifList) {
+	Notifications.loadNotifications = function (notifList, callback) {
+		callback = callback || function () {};
 		socket.emit('notifications.get', null, function (err, data) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
-			var notifs = data.unread.concat(data.read).sort(function (a, b) {
+			const notifs = data.unread.concat(data.read).sort(function (a, b) {
 				return parseInt(a.datetime, 10) > parseInt(b.datetime, 10) ? -1 : 1;
 			});
 
@@ -38,38 +43,46 @@ define('notifications', [
 				app.parseAndTranslate('partials/notifications_list', { notifications }, function (html) {
 					notifList.html(html);
 					notifList.off('click').on('click', '[data-nid]', function (ev) {
-						var notifEl = $(this);
+						const notifEl = $(this);
 						if (scrollToPostIndexIfOnPage(notifEl)) {
 							ev.stopPropagation();
 							ev.preventDefault();
 							components.get('notifications/list').dropdown('toggle');
 						}
 
-						var unread = notifEl.hasClass('unread');
+						const unread = notifEl.hasClass('unread');
 						if (!unread) {
 							return;
 						}
-						var nid = notifEl.attr('data-nid');
+						const nid = notifEl.attr('data-nid');
 						markNotification(nid, true);
 					});
 					components.get('notifications').on('click', '.mark-all-read', Notifications.markAllRead);
 
-					notifList.on('click', '.mark-read', function () {
-						var liEl = $(this).parent();
-						var unread = liEl.hasClass('unread');
-						var nid = liEl.attr('data-nid');
-						markNotification(nid, unread, function () {
-							liEl.toggleClass('unread');
-						});
-						return false;
-					});
+					Notifications.handleUnreadButton(notifList);
 
 					hooks.fire('action:notifications.loaded', {
 						notifications: notifs,
 						list: notifList,
 					});
+					callback();
 				});
 			});
+		});
+	};
+
+	Notifications.handleUnreadButton = function (notifList) {
+		notifList.on('click', '.mark-read', function () {
+			const $this = $(this);
+			const liEl = $this.parents('li[data-nid]');
+			const unread = liEl.hasClass('unread');
+			const nid = liEl.attr('data-nid');
+			markNotification(nid, unread, function () {
+				liEl.toggleClass('unread');
+				$this.find('.unread').toggleClass('hidden', unread);
+				$this.find('.read').toggleClass('hidden', !unread);
+			});
+			return false;
 		});
 	};
 
@@ -80,7 +93,7 @@ define('notifications', [
 
 		socket.emit('notifications.getCount', function (err, count) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
 			Notifications.updateNotifCount(count);
@@ -91,10 +104,14 @@ define('notifications', [
 		}
 	};
 
+	Notifications.markNotification = function (nid, read, callback) {
+		markNotification(nid, read, callback);
+	};
+
 	function markNotification(nid, read, callback) {
 		socket.emit('notifications.mark' + (read ? 'Read' : 'Unread'), nid, function (err) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
 			if (read && unreadNotifs[nid]) {
@@ -108,9 +125,9 @@ define('notifications', [
 
 	function scrollToPostIndexIfOnPage(notifEl) {
 		// Scroll to index if already in topic (gh#5873)
-		var pid = notifEl.attr('data-pid');
-		var path = notifEl.attr('data-path');
-		var postEl = components.get('post', 'pid', pid);
+		const pid = notifEl.attr('data-pid');
+		const path = notifEl.attr('data-path');
+		const postEl = components.get('post', 'pid', pid);
 		if (path.startsWith(config.relative_path + '/post/') && pid && postEl.length && ajaxify.data.template.topic) {
 			navigator.scrollToIndex(postEl.attr('data-index'), true);
 			return true;
@@ -119,34 +136,40 @@ define('notifications', [
 	}
 
 	Notifications.updateNotifCount = function (count) {
-		var notifIcon = components.get('notifications/icon');
+		const notifIcon = components.get('notifications/icon');
 		count = Math.max(0, count);
-		if (count > 0) {
-			notifIcon.removeClass('fa-bell-o').addClass('fa-bell');
-		} else {
-			notifIcon.removeClass('fa-bell').addClass('fa-bell-o');
-		}
+		notifIcon.toggleClass('fa-bell', count > 0)
+			.toggleClass('fa-bell-o', count <= 0);
 
+		const countText = count > 99 ? '99+' : count;
 		notifIcon.toggleClass('unread-count', count > 0);
-		notifIcon.attr('data-content', count > 99 ? '99+' : count);
-
-		var payload = {
+		notifIcon.attr('data-content', countText);
+		components.get('notifications/count').toggleClass('hidden', count <= 0).text(countText);
+		const payload = {
 			count: count,
 			updateFavicon: true,
 		};
 		hooks.fire('action:notification.updateCount', payload);
 
 		if (payload.updateFavicon) {
-			Tinycon.setBubble(count > 99 ? '99+' : count);
+			Tinycon.setBubble(countText);
+		}
+
+		if (navigator.setAppBadge) { // feature detection
+			navigator.setAppBadge(count);
 		}
 	};
 
 	Notifications.markAllRead = function () {
 		socket.emit('notifications.markAllRead', function (err) {
 			if (err) {
-				app.alertError(err.message);
+				alerts.error(err);
 			}
 			unreadNotifs = {};
+			const notifEls = $('[component="notifications/list"] [data-nid]');
+			notifEls.removeClass('unread');
+			notifEls.find('.mark-read .unread').addClass('hidden');
+			notifEls.find('.mark-read .read').removeClass('hidden');
 		});
 	};
 

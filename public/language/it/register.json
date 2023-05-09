@@ -1,5 +1,6 @@
 {
     "register": "Registrati",
+    "already-have-account": "Hai già un account?",
     "cancel_registration": "Cancella Registrazione",
     "help.email": "Per impostazione predefinita, la tua email sarà nascosta al pubblico.",
     "help.username_restrictions": "Un nome utente univoco tra %1 e %2 caratteri. Altri possono citarti con @<span id='yourUsername'>nome utente</span>.",
@@ -20,8 +21,9 @@
     "registration-added-to-queue": "La tua registrazione è stata aggiunta alla coda di approvazione. Riceverai un'email quando sarà accettata da un amministratore.",
     "registration-queue-average-time": "Il nostro tempo medio per l'approvazione delle iscrizioni è di %1 ore %2 minuti.",
     "registration-queue-auto-approve-time": "La tua iscrizione a questo forum sarà completamente attivata entro un massimo di %1 ore.",
-    "interstitial.intro": "Abbiamo bisogno di alcune informazioni aggiuntive prima di poter creare il tuo account.",
-    "interstitial.errors-found": "Non abbiamo potuto completare la tua registrazione:",
+    "interstitial.intro": "Vorremmo alcune informazioni aggiuntive per aggiornare il tuo account&hellip;",
+    "interstitial.intro-new": "Vorremmo alcune informazioni aggiuntive prima di poter creare il tuo account&hellip;",
+    "interstitial.errors-found": "Si prega di rivedere le informazioni inserite:",
     "gdpr_agree_data": "Acconsento alla raccolta e al trattamento dei miei dati personali su questo sito web.",
     "gdpr_agree_email": "Acconsento a ricevere email di riepilogo e notifiche da questo sito web.",
     "gdpr_consent_denied": "È necessario dare il consenso a questo sito per raccogliere/elaborare i tuoi dati e per inviarti email.",

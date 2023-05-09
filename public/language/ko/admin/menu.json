@@ -4,6 +4,7 @@
 	"dashboard/logins": "로그인 기록",
 	"dashboard/users": "사용자",
 	"dashboard/topics": "화제",
+	"dashboard/searches": "Searches",
 	"section-general": "일반",
 
 	"section-manage": "관리",
@@ -75,7 +76,7 @@
 	"logout": "로그아웃",
 	"view-forum": "포럼 보기",
 
-	"search.placeholder": "&quot;/&quot;를 눌러 설정 검색",
+	"search.placeholder": "Search settings",
 	"search.no-results": "검색 결과 없음...",
 	"search.search-forum": "포럼에서 <strong></strong> 검색",
 	"search.keep-typing": "검색 결과를 보기 위해 더 입력하세요...",

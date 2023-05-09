@@ -6,41 +6,72 @@ const nconf = require('nconf');
 const fs = require('fs');
 const winston = require('winston');
 
-const utils = require('../../public/src/utils');
+const utils = require('../../src/utils');
 
 const helpers = module.exports;
 
-helpers.loginUser = function (username, password, callback) {
-	const jar = request.jar();
-
-	request({
+helpers.getCsrfToken = async (jar) => {
+	const { csrf_token: token } = await requestAsync({
 		url: `${nconf.get('url')}/api/config`,
 		json: true,
-		jar: jar,
-	}, (err, res, body) => {
-		if (err || res.statusCode !== 200) {
-			return callback(err || new Error('[[error:invalid-response]]'));
-		}
+		jar,
+	});
 
-		request.post(`${nconf.get('url')}/login`, {
-			form: {
-				username: username,
-				password: password,
-			},
-			json: true,
-			jar: jar,
-			headers: {
-				'x-csrf-token': body.csrf_token,
-			},
-		}, (err, res) => {
-			if (err || res.statusCode !== 200) {
-				return callback(err || new Error('[[error:invalid-response]]'));
-			}
-			callback(null, jar, body.csrf_token);
+	return token;
+};
+
+helpers.request = async function (method, uri, options) {
+	const ignoreMethods = ['GET', 'HEAD', 'OPTIONS'];
+	const lowercaseMethod = String(method).toLowerCase();
+	let csrf_token;
+	if (!ignoreMethods.some(method => method.toLowerCase() === lowercaseMethod)) {
+		csrf_token = await helpers.getCsrfToken(options.jar);
+	}
+
+	return new Promise((resolve, reject) => {
+		options.headers = options.headers || {};
+		if (csrf_token) {
+			options.headers['x-csrf-token'] = csrf_token;
+		}
+		request[lowercaseMethod](`${nconf.get('url')}${uri}`, options, (err, res, body) => {
+			if (err) reject(err);
+			else resolve({ res, body });
 		});
 	});
 };
 
+helpers.loginUser = async (username, password, payload = {}) => {
+	const jar = request.jar();
+	const form = { username, password, ...payload };
+
+	const { statusCode, body: configBody } = await requestAsync({
+		url: `${nconf.get('url')}/api/config`,
+		json: true,
+		jar: jar,
+		followRedirect: false,
+		simple: false,
+		resolveWithFullResponse: true,
+	});
+
+	if (statusCode !== 200) {
+		throw new Error('[[error:invalid-response]]');
+	}
+
+	const { csrf_token } = configBody;
+	const res = await requestAsync.post(`${nconf.get('url')}/login`, {
+		form,
+		json: true,
+		jar: jar,
+		followRedirect: false,
+		simple: false,
+		resolveWithFullResponse: true,
+		headers: {
+			'x-csrf-token': csrf_token,
+		},
+	});
+
+	return { jar, res, body: res.body, csrf_token: csrf_token };
+};
 
 helpers.logoutUser = function (jar, callback) {
 	request({
@@ -91,7 +122,6 @@ helpers.uploadFile = function (uploadEndPoint, filePath, body, jar, csrf_token, 
 	let formData = {
 		files: [
 			fs.createReadStream(filePath),
-			fs.createReadStream(filePath), // see https://github.com/request/request/issues/2445
 		],
 	};
 	formData = utils.merge(formData, body);
@@ -123,6 +153,10 @@ helpers.registerUser = function (data, callback) {
 	}, (err, response, body) => {
 		if (err) {
 			return callback(err);
+		}
+
+		if (!data.hasOwnProperty('password-confirm')) {
+			data['password-confirm'] = data.password;
 		}
 
 		request.post(`${nconf.get('url')}/register`, {
@@ -164,6 +198,7 @@ helpers.copyFile = function (source, target, callback) {
 };
 
 helpers.invite = async function (body, uid, jar, csrf_token) {
+	console.log('making call');
 	const res = await requestAsync.post(`${nconf.get('url')}/api/v3/users/${uid}/invites`, {
 		jar: jar,
 		// using "form" since client "api" module make requests with "application/x-www-form-urlencoded" content-type
@@ -174,9 +209,26 @@ helpers.invite = async function (body, uid, jar, csrf_token) {
 		simple: false,
 		resolveWithFullResponse: true,
 	});
+	console.log(res.statusCode, res.body);
 
 	res.body = JSON.parse(res.body);
 	return { res, body };
+};
+
+helpers.createFolder = function (path, folderName, jar, csrf_token) {
+	return requestAsync.put(`${nconf.get('url')}/api/v3/files/folder`, {
+		jar,
+		body: {
+			path,
+			folderName,
+		},
+		json: true,
+		headers: {
+			'x-csrf-token': csrf_token,
+		},
+		simple: false,
+		resolveWithFullResponse: true,
+	});
 };
 
 require('../../src/promisify')(helpers);

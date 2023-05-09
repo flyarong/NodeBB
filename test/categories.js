@@ -200,9 +200,9 @@ describe('Categories', () => {
 		});
 	});
 
-	describe('socket methods', () => {
+	describe('api/socket methods', () => {
 		const socketCategories = require('../src/socket.io/categories');
-
+		const apiCategories = require('../src/api/categories');
 		before(async () => {
 			await Topics.post({
 				uid: posterUid,
@@ -339,126 +339,144 @@ describe('Categories', () => {
 			});
 		});
 
-		it('should get category data', (done) => {
-			socketCategories.getCategory({ uid: posterUid }, categoryObj.cid, (err, data) => {
-				assert.ifError(err);
-				assert.equal(categoryObj.cid, data.cid);
-				done();
-			});
+		it('should get category data', async () => {
+			const data = await apiCategories.get({ uid: posterUid }, { cid: categoryObj.cid });
+			assert.equal(categoryObj.cid, data.cid);
 		});
 	});
 
-	describe('admin socket methods', () => {
+	describe('admin api/socket methods', () => {
 		const socketCategories = require('../src/socket.io/admin/categories');
+		const apiCategories = require('../src/api/categories');
 		let cid;
-		before((done) => {
-			socketCategories.create({ uid: adminUid }, {
+		before(async () => {
+			const category = await apiCategories.create({ uid: adminUid }, {
 				name: 'update name',
 				description: 'update description',
 				parentCid: categoryObj.cid,
 				icon: 'fa-check',
 				order: '5',
-			}, (err, category) => {
-				assert.ifError(err);
-
-				cid = category.cid;
-				done();
 			});
+			cid = category.cid;
 		});
 
-		it('should return error with invalid data', (done) => {
-			socketCategories.update({ uid: adminUid }, null, (err) => {
-				assert.equal(err.message, '[[error:invalid-data]]');
-				done();
-			});
+		it('should return error with invalid data', async () => {
+			let err;
+			try {
+				await apiCategories.update({ uid: adminUid }, null);
+			} catch (_err) {
+				err = _err;
+			}
+			assert.strictEqual(err.message, '[[error:invalid-data]]');
 		});
 
-		it('should error if you try to set parent as self', (done) => {
+		it('should error if you try to set parent as self', async () => {
+			const updateData = {
+				cid,
+				values: {
+					parentCid: cid,
+				},
+			};
+			let err;
+			try {
+				await apiCategories.update({ uid: adminUid }, updateData);
+			} catch (_err) {
+				err = _err;
+			}
+			assert.strictEqual(err.message, '[[error:cant-set-self-as-parent]]');
+		});
+
+		it('should error if you try to set child as parent', async () => {
+			const parentCategory = await Categories.create({ name: 'parent 1', description: 'poor parent' });
+			const parentCid = parentCategory.cid;
+			const childCategory = await Categories.create({ name: 'child1', description: 'wanna be parent', parentCid: parentCid });
+			const child1Cid = childCategory.cid;
+			const updateData = {
+				cid: parentCid,
+				values: {
+					parentCid: child1Cid,
+				},
+			};
+			let err;
+			try {
+				await apiCategories.update({ uid: adminUid }, updateData);
+			} catch (_err) {
+				err = _err;
+			}
+			assert.strictEqual(err.message, '[[error:cant-set-child-as-parent]]');
+		});
+
+		it('should update category data', async () => {
+			const updateData = {
+				cid,
+				values: {
+					name: 'new name',
+					description: 'new description',
+					parentCid: 0,
+					order: 3,
+					icon: 'fa-hammer',
+				},
+			};
+			await apiCategories.update({ uid: adminUid }, updateData);
+
+			const data = await Categories.getCategoryData(cid);
+			assert.equal(data.name, updateData.values.name);
+			assert.equal(data.description, updateData.values.description);
+			assert.equal(data.parentCid, updateData.values.parentCid);
+			assert.equal(data.order, updateData.values.order);
+			assert.equal(data.icon, updateData.values.icon);
+		});
+
+		it('should properly order categories', async () => {
+			const p1 = await Categories.create({ name: 'p1', description: 'd', parentCid: 0, order: 1 });
+			const c1 = await Categories.create({ name: 'c1', description: 'd1', parentCid: p1.cid, order: 1 });
+			const c2 = await Categories.create({ name: 'c2', description: 'd2', parentCid: p1.cid, order: 2 });
+			const c3 = await Categories.create({ name: 'c3', description: 'd3', parentCid: p1.cid, order: 3 });
+			// move c1 to second place
+			await apiCategories.update({ uid: adminUid }, { cid: c1.cid, values: { order: 2 } });
+			let cids = await db.getSortedSetRange(`cid:${p1.cid}:children`, 0, -1);
+			assert.deepStrictEqual(cids.map(Number), [c2.cid, c1.cid, c3.cid]);
+
+			// move c3 to front
+			await apiCategories.update({ uid: adminUid }, { cid: c3.cid, values: { order: 1 } });
+			cids = await db.getSortedSetRange(`cid:${p1.cid}:children`, 0, -1);
+			assert.deepStrictEqual(cids.map(Number), [c3.cid, c2.cid, c1.cid]);
+		});
+
+		it('should not remove category from parent if parent is set again to same category', async () => {
+			const parentCat = await Categories.create({ name: 'parent', description: 'poor parent' });
 			const updateData = {};
 			updateData[cid] = {
-				parentCid: cid,
+				parentCid: parentCat.cid,
 			};
-			socketCategories.update({ uid: adminUid }, updateData, (err) => {
-				assert.equal(err.message, '[[error:cant-set-self-as-parent]]');
-				done();
-			});
+			await Categories.update(updateData);
+			let data = await Categories.getCategoryData(cid);
+			assert.equal(data.parentCid, updateData[cid].parentCid);
+			let childrenCids = await db.getSortedSetRange(`cid:${parentCat.cid}:children`, 0, -1);
+			assert(childrenCids.includes(String(cid)));
+
+			// update again to same parent
+			await Categories.update(updateData);
+			data = await Categories.getCategoryData(cid);
+			assert.equal(data.parentCid, updateData[cid].parentCid);
+			childrenCids = await db.getSortedSetRange(`cid:${parentCat.cid}:children`, 0, -1);
+			assert(childrenCids.includes(String(cid)));
 		});
 
-		it('should error if you try to set child as parent', (done) => {
-			let child1Cid;
-			let parentCid;
-			async.waterfall([
-				function (next) {
-					Categories.create({ name: 'parent 1', description: 'poor parent' }, next);
-				},
-				function (category, next) {
-					parentCid = category.cid;
-					Categories.create({ name: 'child1', description: 'wanna be parent', parentCid: parentCid }, next);
-				},
-				function (category, next) {
-					child1Cid = category.cid;
-					const updateData = {};
-					updateData[parentCid] = {
-						parentCid: child1Cid,
-					};
-					socketCategories.update({ uid: adminUid }, updateData, (err) => {
-						assert.equal(err.message, '[[error:cant-set-child-as-parent]]');
-						next();
-					});
-				},
-			], done);
-		});
-
-		it('should update category data', (done) => {
-			const updateData = {};
-			updateData[cid] = {
-				name: 'new name',
-				description: 'new description',
-				parentCid: 0,
-				order: 3,
-				icon: 'fa-hammer',
-			};
-			socketCategories.update({ uid: adminUid }, updateData, (err) => {
-				assert.ifError(err);
-				Categories.getCategoryData(cid, (err, data) => {
-					assert.ifError(err);
-					assert.equal(data.name, updateData[cid].name);
-					assert.equal(data.description, updateData[cid].description);
-					assert.equal(data.parentCid, updateData[cid].parentCid);
-					assert.equal(data.order, updateData[cid].order);
-					assert.equal(data.icon, updateData[cid].icon);
-					done();
-				});
-			});
-		});
-
-		it('should purge category', (done) => {
-			Categories.create({
+		it('should purge category', async () => {
+			const category = await Categories.create({
 				name: 'purge me',
 				description: 'update description',
-			}, (err, category) => {
-				assert.ifError(err);
-				Topics.post({
-					uid: posterUid,
-					cid: category.cid,
-					title: 'Test Topic Title',
-					content: 'The content of test topic',
-				}, (err) => {
-					assert.ifError(err);
-					socketCategories.purge({ uid: adminUid }, category.cid, (err) => {
-						assert.ifError(err);
-						done();
-					});
-				});
 			});
-		});
-
-		it('should get all categories', (done) => {
-			socketCategories.getAll({ uid: adminUid }, {}, (err, data) => {
-				assert.ifError(err);
-				assert(data);
-				done();
+			await Topics.post({
+				uid: posterUid,
+				cid: category.cid,
+				title: 'Test Topic Title',
+				content: 'The content of test topic',
 			});
+			await apiCategories.delete({ uid: adminUid }, { cid: category.cid });
+			const data = await Categories.getCategoryById(category.cid);
+			assert.strictEqual(data, null);
 		});
 
 		it('should get all category names', (done) => {
@@ -469,67 +487,43 @@ describe('Categories', () => {
 			});
 		});
 
-		it('should give privilege', (done) => {
-			socketCategories.setPrivilege({ uid: adminUid }, { cid: categoryObj.cid, privilege: ['groups:topics:delete'], set: true, member: 'registered-users' }, (err) => {
-				assert.ifError(err);
-				privileges.categories.can('topics:delete', categoryObj.cid, posterUid, (err, canDeleteTopcis) => {
-					assert.ifError(err);
-					assert(canDeleteTopcis);
-					done();
-				});
-			});
+		it('should give privilege', async () => {
+			await apiCategories.setPrivilege({ uid: adminUid }, { cid: categoryObj.cid, privilege: ['groups:topics:delete'], set: true, member: 'registered-users' });
+			const canDeleteTopics = await privileges.categories.can('topics:delete', categoryObj.cid, posterUid);
+			assert(canDeleteTopics);
 		});
 
-		it('should remove privilege', (done) => {
-			socketCategories.setPrivilege({ uid: adminUid }, { cid: categoryObj.cid, privilege: 'groups:topics:delete', set: false, member: 'registered-users' }, (err) => {
-				assert.ifError(err);
-				privileges.categories.can('topics:delete', categoryObj.cid, posterUid, (err, canDeleteTopcis) => {
-					assert.ifError(err);
-					assert(!canDeleteTopcis);
-					done();
-				});
-			});
+		it('should remove privilege', async () => {
+			await apiCategories.setPrivilege({ uid: adminUid }, { cid: categoryObj.cid, privilege: 'groups:topics:delete', set: false, member: 'registered-users' });
+			const canDeleteTopics = await privileges.categories.can('topics:delete', categoryObj.cid, posterUid);
+			assert(!canDeleteTopics);
 		});
 
-		it('should get privilege settings', (done) => {
-			socketCategories.getPrivilegeSettings({ uid: adminUid }, categoryObj.cid, (err, data) => {
-				assert.ifError(err);
-				assert(data);
-				done();
-			});
+		it('should get privilege settings', async () => {
+			const data = await apiCategories.getPrivileges({ uid: adminUid }, categoryObj.cid);
+			assert(data.labels);
+			assert(data.labels.users);
+			assert(data.labels.groups);
+			assert(data.keys.users);
+			assert(data.keys.groups);
+			assert(data.users);
+			assert(data.groups);
 		});
 
-		it('should copy privileges to children', (done) => {
-			let parentCid;
-			let child1Cid;
-			let child2Cid;
-			async.waterfall([
-				function (next) {
-					Categories.create({ name: 'parent' }, next);
-				},
-				function (category, next) {
-					parentCid = category.cid;
-					Categories.create({ name: 'child1', parentCid: parentCid }, next);
-				},
-				function (category, next) {
-					child1Cid = category.cid;
-					Categories.create({ name: 'child2', parentCid: child1Cid }, next);
-				},
-				function (category, next) {
-					child2Cid = category.cid;
-					socketCategories.setPrivilege({ uid: adminUid }, { cid: parentCid, privilege: 'groups:topics:delete', set: true, member: 'registered-users' }, next);
-				},
-				function (next) {
-					socketCategories.copyPrivilegesToChildren({ uid: adminUid }, { cid: parentCid, group: '' }, next);
-				},
-				function (next) {
-					privileges.categories.can('topics:delete', child2Cid, posterUid, next);
-				},
-				function (canDelete, next) {
-					assert(canDelete);
-					next();
-				},
-			], done);
+		it('should copy privileges to children', async () => {
+			const parentCategory = await Categories.create({ name: 'parent' });
+			const parentCid = parentCategory.cid;
+			const child1 = await Categories.create({ name: 'child1', parentCid: parentCid });
+			const child2 = await Categories.create({ name: 'child2', parentCid: child1.cid });
+			await apiCategories.setPrivilege({ uid: adminUid }, {
+				cid: parentCid,
+				privilege: 'groups:topics:delete',
+				set: true,
+				member: 'registered-users',
+			});
+			await socketCategories.copyPrivilegesToChildren({ uid: adminUid }, { cid: parentCid, group: '' });
+			const canDelete = await privileges.categories.can('topics:delete', child2.cid, posterUid);
+			assert(canDelete);
 		});
 
 		it('should create category with settings from', (done) => {
@@ -580,60 +574,34 @@ describe('Categories', () => {
 			], done);
 		});
 
-		it('should copy privileges from another category', (done) => {
-			let child1Cid;
-			let parentCid;
-			async.waterfall([
-				function (next) {
-					Categories.create({ name: 'parent', description: 'copy me' }, next);
-				},
-				function (category, next) {
-					parentCid = category.cid;
-					Categories.create({ name: 'child1' }, next);
-				},
-				function (category, next) {
-					child1Cid = category.cid;
-					socketCategories.setPrivilege({ uid: adminUid }, { cid: parentCid, privilege: 'groups:topics:delete', set: true, member: 'registered-users' }, next);
-				},
-				function (next) {
-					socketCategories.copyPrivilegesFrom({ uid: adminUid }, { fromCid: parentCid, toCid: child1Cid }, next);
-				},
-				function (next) {
-					privileges.categories.can('topics:delete', child1Cid, posterUid, next);
-				},
-				function (canDelete, next) {
-					assert(canDelete);
-					next();
-				},
-			], done);
+		it('should copy privileges from another category', async () => {
+			const parent = await Categories.create({ name: 'parent', description: 'copy me' });
+			const parentCid = parent.cid;
+			const child1 = await Categories.create({ name: 'child1' });
+			await apiCategories.setPrivilege({ uid: adminUid }, {
+				cid: parentCid,
+				privilege: 'groups:topics:delete',
+				set: true,
+				member: 'registered-users',
+			});
+			await socketCategories.copyPrivilegesFrom({ uid: adminUid }, { fromCid: parentCid, toCid: child1.cid });
+			const canDelete = await privileges.categories.can('topics:delete', child1.cid, posterUid);
+			assert(canDelete);
 		});
 
-		it('should copy privileges from another category for a single group', (done) => {
-			let child1Cid;
-			let parentCid;
-			async.waterfall([
-				function (next) {
-					Categories.create({ name: 'parent', description: 'copy me' }, next);
-				},
-				function (category, next) {
-					parentCid = category.cid;
-					Categories.create({ name: 'child1' }, next);
-				},
-				function (category, next) {
-					child1Cid = category.cid;
-					socketCategories.setPrivilege({ uid: adminUid }, { cid: parentCid, privilege: 'groups:topics:delete', set: true, member: 'registered-users' }, next);
-				},
-				function (next) {
-					socketCategories.copyPrivilegesFrom({ uid: adminUid }, { fromCid: parentCid, toCid: child1Cid, group: 'registered-users' }, next);
-				},
-				function (next) {
-					privileges.categories.can('topics:delete', child1Cid, 0, next);
-				},
-				function (canDelete, next) {
-					assert(!canDelete);
-					next();
-				},
-			], done);
+		it('should copy privileges from another category for a single group', async () => {
+			const parent = await Categories.create({ name: 'parent', description: 'copy me' });
+			const parentCid = parent.cid;
+			const child1 = await Categories.create({ name: 'child1' });
+			await apiCategories.setPrivilege({ uid: adminUid }, {
+				cid: parentCid,
+				privilege: 'groups:topics:delete',
+				set: true,
+				member: 'registered-users',
+			});
+			await socketCategories.copyPrivilegesFrom({ uid: adminUid }, { fromCid: parentCid, toCid: child1.cid, group: 'registered-users' });
+			const canDelete = await privileges.categories.can('topics:delete', child1.cid, 0);
+			assert(!canDelete);
 		});
 	});
 
@@ -783,6 +751,7 @@ describe('Categories', () => {
 				assert.ifError(err);
 				assert.deepEqual(data, {
 					ban: false,
+					mute: false,
 					invite: false,
 					chat: false,
 					'search:content': false,
@@ -834,6 +803,7 @@ describe('Categories', () => {
 				assert.ifError(err);
 				assert.deepEqual(data, {
 					'groups:ban': false,
+					'groups:mute': false,
 					'groups:invite': false,
 					'groups:chat': true,
 					'groups:search:content': true,
@@ -863,16 +833,17 @@ describe('Categories', () => {
 		});
 
 		describe('Categories.getModeratorUids', () => {
-			before((done) => {
-				async.series([
-					async.apply(groups.create, { name: 'testGroup' }),
-					async.apply(groups.join, 'cid:1:privileges:groups:moderate', 'testGroup'),
-					async.apply(groups.join, 'testGroup', 1),
-				], done);
+			let cid;
+
+			before(async () => {
+				({ cid } = await Categories.create({ name: 'foobar' }));
+				await groups.create({ name: 'testGroup' });
+				await groups.join(`cid:${cid}:privileges:groups:moderate`, 'testGroup');
+				await groups.join('testGroup', 1);
 			});
 
 			it('should retrieve all users with moderator bit in category privilege', (done) => {
-				Categories.getModeratorUids([1, 2], (err, uids) => {
+				Categories.getModeratorUids([cid, 2], (err, uids) => {
 					assert.ifError(err);
 					assert.strictEqual(uids.length, 2);
 					assert(uids[0].includes('1'));
@@ -887,7 +858,7 @@ describe('Categories', () => {
 					async.apply(groups.join, 'cid:1:privileges:groups:moderate', 'testGroup2'),
 					async.apply(groups.join, 'testGroup2', 1),
 					function (next) {
-						Categories.getModeratorUids([1, 2], (err, uids) => {
+						Categories.getModeratorUids([cid, 2], (err, uids) => {
 							assert.ifError(err);
 							assert(uids[0].includes('1'));
 							next();
@@ -896,10 +867,18 @@ describe('Categories', () => {
 				], done);
 			});
 
+			it('should not return moderators of disabled categories', async () => {
+				const payload = {};
+				payload[cid] = { disabled: 1 };
+				await Categories.update(payload);
+				const uids = await Categories.getModeratorUids([cid, 2]);
+				assert(!uids[0].includes('1'));
+			});
+
 			after((done) => {
 				async.series([
-					async.apply(groups.leave, 'cid:1:privileges:groups:moderate', 'testGroup'),
-					async.apply(groups.leave, 'cid:1:privileges:groups:moderate', 'testGroup2'),
+					async.apply(groups.leave, `cid:${cid}:privileges:groups:moderate`, 'testGroup'),
+					async.apply(groups.leave, `cid:${cid}:privileges:groups:moderate`, 'testGroup2'),
 					async.apply(groups.destroy, 'testGroup'),
 					async.apply(groups.destroy, 'testGroup2'),
 				], done);

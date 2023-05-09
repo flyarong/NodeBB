@@ -10,6 +10,8 @@ define('forum/groups/details', [
 	'api',
 	'slugify',
 	'categorySelector',
+	'bootbox',
+	'alerts',
 ], function (
 	memberList,
 	iconSelect,
@@ -19,13 +21,15 @@ define('forum/groups/details', [
 	translator,
 	api,
 	slugify,
-	categorySelector
+	categorySelector,
+	bootbox,
+	alerts
 ) {
-	var Details = {};
-	var groupName;
+	const Details = {};
+	let groupName;
 
 	Details.init = function () {
-		var detailsPage = components.get('groups/container');
+		const detailsPage = components.get('groups/container');
 
 		groupName = ajaxify.data.group.name;
 
@@ -63,21 +67,21 @@ define('forum/groups/details', [
 
 		handleMemberInvitations();
 
-		components.get('groups/activity').find('.content img:not(.not-responsive)').addClass('img-responsive');
+		components.get('groups/activity').find('.content img:not(.not-responsive)').addClass('img-fluid');
 
 		detailsPage.on('click', '[data-action]', function () {
-			var btnEl = $(this);
-			var userRow = btnEl.parents('[data-uid]');
-			var ownerFlagEl = userRow.find('.member-name > i');
-			var isOwner = !ownerFlagEl.hasClass('invisible');
-			var uid = userRow.attr('data-uid');
-			var action = btnEl.attr('data-action');
+			const btnEl = $(this);
+			const userRow = btnEl.parents('[data-uid]');
+			const ownerFlagEl = userRow.find('[component="groups/owner/icon"]');
+			const isOwner = !!parseInt(userRow.attr('data-isowner'), 10);
+			const uid = userRow.attr('data-uid');
+			const action = btnEl.attr('data-action');
 
 			switch (action) {
 				case 'toggleOwnership':
 					api[isOwner ? 'del' : 'put'](`/groups/${ajaxify.data.group.slug}/ownership/${uid}`, {}).then(() => {
 						ownerFlagEl.toggleClass('invisible');
-					}).catch(app.alertError);
+					}).catch(alerts.error);
 					break;
 
 				case 'kick':
@@ -87,7 +91,7 @@ define('forum/groups/details', [
 								return;
 							}
 
-							api.del(`/groups/${ajaxify.data.group.slug}/membership/${uid}`, undefined).then(() => userRow.slideUp().remove()).catch(app.alertError);
+							api.del(`/groups/${ajaxify.data.group.slug}/membership/${uid}`, undefined).then(() => userRow.slideUp().remove()).catch(alerts.error);
 						});
 					});
 					break;
@@ -100,49 +104,78 @@ define('forum/groups/details', [
 					Details.deleteGroup();
 					break;
 
-				case 'join':	// intentional fall-throughs!
-					api.put('/groups/' + ajaxify.data.group.slug + '/membership/' + (uid || app.user.uid), undefined).then(() => ajaxify.refresh()).catch(app.alertError);
+				case 'join':
+					api.put('/groups/' + ajaxify.data.group.slug + '/membership/' + (uid || app.user.uid), undefined).then(() => ajaxify.refresh()).catch(alerts.error);
 					break;
 
 				case 'leave':
-					api.del('/groups/' + ajaxify.data.group.slug + '/membership/' + (uid || app.user.uid), undefined).then(() => ajaxify.refresh()).catch(app.alertError);
+					api.del('/groups/' + ajaxify.data.group.slug + '/membership/' + (uid || app.user.uid), undefined).then(() => ajaxify.refresh()).catch(alerts.error);
 					break;
 
-				// TODO (14/10/2020): rewrite these to use api module and merge with above 2 case blocks
-				case 'accept':	// intentional fall-throughs!
-				case 'reject':
-				case 'issueInvite':
-				case 'rescindInvite':
-				case 'acceptInvite':
-				case 'rejectInvite':
-				case 'acceptAll':
-				case 'rejectAll':
-					socket.emit('groups.' + action, {
-						toUid: uid,
-						groupName: groupName,
-					}, function (err) {
-						if (!err) {
-							ajaxify.refresh();
-						} else {
-							app.alertError(err.message);
-						}
-					});
+				case 'accept':
+					api.put(`/groups/${ajaxify.data.group.slug}/pending/${uid}`).then(() => ajaxify.refresh()).catch(alerts.error);
 					break;
+
+				case 'reject':
+					api.del(`/groups/${ajaxify.data.group.slug}/pending/${uid}`).then(() => ajaxify.refresh()).catch(alerts.error);
+					break;
+
+				case 'issueInvite':
+					api.post(`/groups/${ajaxify.data.group.slug}/invites/${uid}`).then(() => ajaxify.refresh()).catch(alerts.error);
+					break;
+
+				case 'acceptInvite':
+					api.put(`/groups/${ajaxify.data.group.slug}/invites/${app.user.uid}`).then(() => {
+						if (uid) {
+							userRow.remove();
+						} else {
+							ajaxify.refresh();
+						}
+					}).catch(alerts.error);
+					break;
+
+				case 'rescindInvite': // falls through
+				case 'rejectInvite':
+					api.del(`/groups/${ajaxify.data.group.slug}/invites/${uid || app.user.uid}`).then(() => {
+						if (uid) {
+							userRow.remove();
+						} else {
+							ajaxify.refresh();
+						}
+					}).catch(alerts.error);
+					break;
+
+				case 'acceptAll': // falls throughs
+				case 'rejectAll': {
+					const listEl = document.querySelector('[component="groups/pending"]');
+					if (!listEl) {
+						return;
+					}
+
+					const method = action === 'acceptAll' ? 'put' : 'del';
+					let uids = Array.prototype.map.call(listEl.querySelectorAll('[data-uid]'), el => parseInt(el.getAttribute('data-uid'), 10));
+					uids = uids.filter((uid, idx) => uids.indexOf(uid) === idx);
+
+					Promise.all(uids.map(async uid => api[method](`/groups/${ajaxify.data.group.slug}/pending/${uid}`))).then(() => {
+						ajaxify.refresh();
+					}).catch(alerts.error);
+					break;
+				}
 			}
 		});
 	};
 
 	Details.prepareSettings = function () {
-		var settingsFormEl = components.get('groups/settings');
-		var labelColorValueEl = settingsFormEl.find('[name="labelColor"]');
-		var textColorValueEl = settingsFormEl.find('[name="textColor"]');
-		var iconBtn = settingsFormEl.find('[data-action="icon-select"]');
-		var previewEl = settingsFormEl.find('.label');
-		var previewElText = settingsFormEl.find('.label-text');
-		var previewIcon = previewEl.find('i');
-		var userTitleEl = settingsFormEl.find('[name="userTitle"]');
-		var userTitleEnabledEl = settingsFormEl.find('[name="userTitleEnabled"]');
-		var iconValueEl = settingsFormEl.find('[name="icon"]');
+		const settingsFormEl = components.get('groups/settings');
+		const labelColorValueEl = settingsFormEl.find('[name="labelColor"]');
+		const textColorValueEl = settingsFormEl.find('[name="textColor"]');
+		const iconBtn = settingsFormEl.find('[data-action="icon-select"]');
+		const previewEl = settingsFormEl.find('.badge');
+		const previewElText = settingsFormEl.find('.badge-text');
+		const previewIcon = previewEl.find('i');
+		const userTitleEl = settingsFormEl.find('[name="userTitle"]');
+		const userTitleEnabledEl = settingsFormEl.find('[name="userTitleEnabled"]');
+		const iconValueEl = settingsFormEl.find('[name="icon"]');
 
 		labelColorValueEl.on('input', function () {
 			previewEl.css('background-color', labelColorValueEl.val());
@@ -161,12 +194,12 @@ define('forum/groups/details', [
 
 		// If the user title changes, update that too
 		userTitleEl.on('keyup', function () {
-			previewElText.translateText((this.value || settingsFormEl.find('#name').val()));
+			previewElText.translateText((userTitleEl.val()));
 		});
 
 		// Disable user title customisation options if the the user title itself is disabled
 		userTitleEnabledEl.on('change', function () {
-			var customOpts = components.get('groups/userTitleOption');
+			const customOpts = components.get('groups/userTitleOption');
 
 			if (this.checked) {
 				customOpts.removeAttr('disabled');
@@ -177,9 +210,9 @@ define('forum/groups/details', [
 			}
 		});
 
-		var cidSelector = categorySelector.init($('.member-post-cids-selector [component="category-selector"]'), {
+		const cidSelector = categorySelector.init($('.member-post-cids-selector [component="category-selector"]'), {
 			onSelect: function (selectedCategory) {
-				var cids = ($('#memberPostCids').val() || '').split(',').map(cid => parseInt(cid, 10));
+				let cids = ($('#memberPostCids').val() || '').split(',').map(cid => parseInt(cid, 10));
 				cids.push(selectedCategory.cid);
 				cids = cids.filter((cid, index, array) => array.indexOf(cid) === index);
 				$('#memberPostCids').val(cids.join(','));
@@ -189,11 +222,11 @@ define('forum/groups/details', [
 	};
 
 	Details.update = function () {
-		var settingsFormEl = components.get('groups/settings');
-		var checkboxes = settingsFormEl.find('input[type="checkbox"][name]');
+		const settingsFormEl = components.get('groups/settings');
+		const checkboxes = settingsFormEl.find('input[type="checkbox"][name]');
 
 		if (settingsFormEl.length) {
-			var settings = settingsFormEl.serializeObject();
+			const settings = settingsFormEl.serializeObject();
 
 			// serializeObject doesnt return array for multi selects if only one item is selected
 			if (!Array.isArray(settings.memberPostCids)) {
@@ -209,16 +242,14 @@ define('forum/groups/details', [
 			});
 
 			api.put(`/groups/${ajaxify.data.group.slug}`, settings).then(() => {
-				if (settings.name) {
-					var pathname = window.location.pathname;
-					pathname = pathname.substr(1, pathname.lastIndexOf('/'));
+				if (settings.name !== ajaxify.data.group.name) {
+					let pathname = window.location.pathname;
+					pathname = pathname.slice(1, pathname.lastIndexOf('/') + 1);
 					ajaxify.go(pathname + slugify(settings.name));
-				} else {
-					ajaxify.refresh();
 				}
 
-				app.alertSuccess('[[groups:event.updated]]');
-			}).catch(app.alertError);
+				alerts.success('[[groups:event.updated]]');
+			}).catch(alerts.error);
 		}
 	};
 
@@ -228,9 +259,9 @@ define('forum/groups/details', [
 				bootbox.prompt('Please enter the name of this group in order to delete it:', function (response) {
 					if (response === groupName) {
 						api.del(`/groups/${ajaxify.data.group.slug}`, {}).then(() => {
-							app.alertSuccess('[[groups:event.deleted, ' + utils.escapeHTML(groupName) + ']]');
+							alerts.success('[[groups:event.deleted, ' + utils.escapeHTML(groupName) + ']]');
 							ajaxify.go('groups');
-						}).catch(app.alertError);
+						}).catch(alerts.error);
 					}
 				});
 			}
@@ -241,37 +272,35 @@ define('forum/groups/details', [
 		if (!ajaxify.data.group.isOwner) {
 			return;
 		}
-
-		var searchInput = $('[component="groups/members/invite"]');
+		async function updateList() {
+			const data = await api.get(`/api/groups/${ajaxify.data.group.slug}`);
+			const html = await app.parseAndTranslate('groups/details', 'group.invited', { group: data.group });
+			$('[component="groups/invited"] tbody tr').remove();
+			$('[component="groups/invited"] tbody').html(html);
+		}
+		const searchInput = $('[component="groups/members/invite"]');
 		require(['autocomplete'], function (autocomplete) {
 			autocomplete.user(searchInput, function (event, selected) {
-				socket.emit('groups.issueInvite', {
-					toUid: selected.item.user.uid,
-					groupName: ajaxify.data.group.name,
-				}, function (err) {
-					if (err) {
-						return app.alertError(err.message);
-					}
-					ajaxify.refresh();
-				});
+				api.post(`/groups/${ajaxify.data.group.slug}/invites/${selected.item.user.uid}`).then(() => updateList()).catch(alerts.error);
 			});
 		});
 
-		$('[component="groups/members/bulk-invite-button"]').on('click', function () {
-			var usernames = $('[component="groups/members/bulk-invite"]').val();
+		$('[component="groups/members/bulk-invite-button"]').on('click', async () => {
+			let usernames = $('[component="groups/members/bulk-invite"]').val();
 			if (!usernames) {
 				return false;
 			}
-			socket.emit('groups.issueMassInvite', {
-				usernames: usernames,
-				groupName: ajaxify.data.group.name,
-			}, function (err) {
-				if (err) {
-					return app.alertError(err.message);
-				}
-				ajaxify.refresh();
-			});
-			return false;
+
+			// Filter out bad usernames
+			usernames = usernames.split(',').map(username => slugify(username));
+			usernames = await Promise.all(usernames.map(slug => api.head(`/users/bySlug/${slug}`).then(() => slug).catch(() => false)));
+			usernames = usernames.filter(Boolean);
+
+			const uids = await Promise.all(usernames.map(slug => api.get(`/users/bySlug/${slug}`).then(({ uid }) => uid)));
+
+			await Promise.all(uids.map(async uid => api.post(`/groups/${ajaxify.data.group.slug}/invites/${uid}`))).then(() => {
+				updateList();
+			}).catch(alerts.error);
 		});
 	}
 
@@ -288,7 +317,7 @@ define('forum/groups/details', [
 					if (!err) {
 						ajaxify.refresh();
 					} else {
-						app.alertError(err.message);
+						alerts.error(err);
 					}
 				});
 			});

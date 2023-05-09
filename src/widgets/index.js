@@ -27,7 +27,7 @@ widgets.render = async function (uid, options) {
 	const returnData = {};
 	locations.forEach((location, i) => {
 		if (Array.isArray(widgetData[i]) && widgetData[i].length) {
-			returnData[location] = widgetData[i].filter(Boolean);
+			returnData[location] = widgetData[i].filter(widget => widget && widget.html);
 		}
 	});
 
@@ -167,6 +167,21 @@ widgets.setArea = async function (area) {
 	await db.setObjectField(`widgets:${area.template}`, area.location, JSON.stringify(area.widgets));
 };
 
+widgets.setAreas = async function (areas) {
+	const templates = {};
+	areas.forEach((area) => {
+		if (!area.location || !area.template) {
+			throw new Error('Missing location and template data');
+		}
+		templates[area.template] = templates[area.template] || {};
+		templates[area.template][area.location] = JSON.stringify(area.widgets);
+	});
+
+	await db.setObjectBulk(
+		Object.keys(templates).map(tpl => [`widgets:${tpl}`, templates[tpl]])
+	);
+};
+
 widgets.reset = async function () {
 	const defaultAreas = [
 		{ name: 'Draft Zone', template: 'global', location: 'header' },
@@ -197,11 +212,13 @@ widgets.reset = async function () {
 
 widgets.resetTemplate = async function (template) {
 	const area = await db.getObject(`widgets:${template}.tpl`);
-	const toBeDrafted = _.flatMap(Object.values(area), value => JSON.parse(value));
-	await db.delete(`widgets:${template}.tpl`);
-	let draftWidgets = await db.getObjectField('widgets:global', 'drafts');
-	draftWidgets = JSON.parse(draftWidgets).concat(toBeDrafted);
-	await db.setObjectField('widgets:global', 'drafts', JSON.stringify(draftWidgets));
+	if (area) {
+		const toBeDrafted = _.flatMap(Object.values(area), value => JSON.parse(value));
+		await db.delete(`widgets:${template}.tpl`);
+		let draftWidgets = await db.getObjectField('widgets:global', 'drafts');
+		draftWidgets = JSON.parse(draftWidgets).concat(toBeDrafted);
+		await db.setObjectField('widgets:global', 'drafts', JSON.stringify(draftWidgets));
+	}
 };
 
 widgets.resetTemplates = async function (templates) {

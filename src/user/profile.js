@@ -2,7 +2,6 @@
 'use strict';
 
 const _ = require('lodash');
-const async = require('async');
 const validator = require('validator');
 const winston = require('winston');
 
@@ -38,8 +37,8 @@ module.exports = function (User) {
 		await validateData(uid, data);
 
 		const oldData = await User.getUserFields(updateUid, fields);
-
-		await async.each(fields, async (field) => {
+		const updateData = {};
+		await Promise.all(fields.map(async (field) => {
 			if (!(data[field] !== undefined && typeof data[field] === 'string')) {
 				return;
 			}
@@ -53,9 +52,12 @@ module.exports = function (User) {
 			} else if (field === 'fullname') {
 				return await updateFullname(updateUid, data.fullname);
 			}
+			updateData[field] = data[field];
+		}));
 
-			await User.setUserField(updateUid, field, data[field]);
-		});
+		if (Object.keys(updateData).length) {
+			await User.setUserFields(updateUid, updateData);
+		}
 
 		plugins.hooks.fire('action:user.updateProfile', {
 			uid: uid,
@@ -71,7 +73,7 @@ module.exports = function (User) {
 	};
 
 	async function validateData(callerUid, data) {
-		await isEmailAvailable(data, data.uid);
+		await isEmailValid(data);
 		await isUsernameAvailable(data, data.uid);
 		await isWebsiteValid(callerUid, data);
 		await isAboutMeValid(callerUid, data);
@@ -82,7 +84,7 @@ module.exports = function (User) {
 		isGroupTitleValid(data);
 	}
 
-	async function isEmailAvailable(data, uid) {
+	async function isEmailValid(data) {
 		if (!data.email) {
 			return;
 		}
@@ -90,14 +92,6 @@ module.exports = function (User) {
 		data.email = data.email.trim();
 		if (!utils.isEmailValid(data.email)) {
 			throw new Error('[[error:invalid-email]]');
-		}
-		const email = await User.getUserField(uid, 'email');
-		if (email === data.email) {
-			return;
-		}
-		const available = await User.email.available(data.email);
-		if (!available) {
-			throw new Error('[[error:email-taken]]');
 		}
 	}
 
@@ -171,7 +165,8 @@ module.exports = function (User) {
 		if (!data.signature) {
 			return;
 		}
-		if (data.signature !== undefined && data.signature.length > meta.config.maximumSignatureLength) {
+		const signature = data.signature.replace(/\r\n/g, '\n');
+		if (signature.length > meta.config.maximumSignatureLength) {
 			throw new Error(`[[error:signature-too-long, ${meta.config.maximumSignatureLength}]]`);
 		}
 		await User.checkMinReputation(callerUid, data.uid, 'min:rep:signature');
@@ -232,7 +227,7 @@ module.exports = function (User) {
 		}
 		const reputation = await User.getUserField(uid, 'reputation');
 		if (reputation < meta.config[setting]) {
-			throw new Error(`[[error:not-enough-reputation-${setting.replace(/:/g, '-')}]]`);
+			throw new Error(`[[error:not-enough-reputation-${setting.replace(/:/g, '-')}, ${meta.config[setting]}]]`);
 		}
 	};
 
@@ -243,27 +238,11 @@ module.exports = function (User) {
 			return;
 		}
 
-		await db.sortedSetRemove('email:uid', oldEmail.toLowerCase());
-		await db.sortedSetRemove('email:sorted', `${oldEmail.toLowerCase()}:${uid}`);
-		await User.auth.revokeAllSessions(uid);
-
-		await Promise.all([
-			db.sortedSetAddBulk([
-				['email:uid', uid, newEmail.toLowerCase()],
-				['email:sorted', 0, `${newEmail.toLowerCase()}:${uid}`],
-				[`user:${uid}:emails`, Date.now(), `${newEmail}:${Date.now()}`],
-			]),
-			User.setUserFields(uid, { email: newEmail, 'email:confirmed': 0 }),
-			groups.leave('verified-users', uid),
-			groups.join('unverified-users', uid),
-			User.reset.cleanByUid(uid),
-		]);
-
-		if (meta.config.requireEmailConfirmation && newEmail) {
+		// 👉 Looking for email change logic? src/user/email.js (UserEmail.confirmByUid)
+		if (newEmail) {
 			await User.email.sendValidationEmail(uid, {
 				email: newEmail,
-				subject: '[[email:email.verify-your-email.subject]]',
-				template: 'verify_email',
+				force: 1,
 			}).catch(err => winston.error(`[user.create] Validation email failed to send\n[emailer.send] ${err.stack}`));
 		}
 	}
@@ -348,6 +327,7 @@ module.exports = function (User) {
 			User.reset.cleanByUid(data.uid),
 			User.reset.updateExpiry(data.uid),
 			User.auth.revokeAllSessions(data.uid),
+			User.email.expireValidation(data.uid),
 		]);
 
 		plugins.hooks.fire('action:password.change', { uid: uid, targetUid: data.uid });

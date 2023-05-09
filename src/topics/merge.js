@@ -1,7 +1,7 @@
 'use strict';
 
-const async = require('async');
 const plugins = require('../plugins');
+const posts = require('../posts');
 
 module.exports = function (Topics) {
 	Topics.merge = async function (tids, uid, options) {
@@ -23,11 +23,12 @@ module.exports = function (Topics) {
 		const otherTids = tids.sort((a, b) => a - b)
 			.filter(tid => tid && parseInt(tid, 10) !== parseInt(mergeIntoTid, 10));
 
-		await async.eachSeries(otherTids, async (tid) => {
+		for (const tid of otherTids) {
+			/* eslint-disable no-await-in-loop */
 			const pids = await Topics.getPids(tid);
-			await async.eachSeries(pids, (pid, next) => {
-				Topics.movePostToTopic(uid, pid, mergeIntoTid, next);
-			});
+			for (const pid of pids) {
+				await Topics.movePostToTopic(uid, pid, mergeIntoTid);
+			}
 
 			await Topics.setTopicField(tid, 'mainPid', 0);
 			await Topics.delete(tid, uid);
@@ -36,9 +37,12 @@ module.exports = function (Topics) {
 				mergerUid: uid,
 				mergedTimestamp: Date.now(),
 			});
-		});
+		}
 
-		await updateViewCount(mergeIntoTid, tids);
+		await Promise.all([
+			posts.updateQueuedPostsTopic(mergeIntoTid, otherTids),
+			updateViewCount(mergeIntoTid, tids),
+		]);
 
 		plugins.hooks.fire('action:topic.merge', {
 			uid: uid,
@@ -51,11 +55,16 @@ module.exports = function (Topics) {
 
 	async function createNewTopic(title, oldestTid) {
 		const topicData = await Topics.getTopicFields(oldestTid, ['uid', 'cid']);
-		const tid = await Topics.create({
+		const params = {
 			uid: topicData.uid,
 			cid: topicData.cid,
 			title: title,
+		};
+		const result = await plugins.hooks.fire('filter:topic.mergeCreateNewTopic', {
+			oldestTid: oldestTid,
+			params: params,
 		});
+		const tid = await Topics.create(result.params);
 		return tid;
 	}
 

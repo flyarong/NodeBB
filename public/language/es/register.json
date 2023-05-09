@@ -1,5 +1,6 @@
 {
     "register": "Registrarse",
+    "already-have-account": "Already have an account?",
     "cancel_registration": "Cancelar registro",
     "help.email": "Por defecto, tu cuenta de correo electrónico estará oculta al publico.",
     "help.username_restrictions": "El nombre de usuario debe tener entre %1 y %2 carácteres. Los miembros pueden responderte escribiendo @<span id='yourUsername'>usuario</span>.",
@@ -20,8 +21,9 @@
     "registration-added-to-queue": "Tu registro se ha añadido a la cola de aprobación,. Recibirás un correo cuando este sea aceptado por un administrador. ",
     "registration-queue-average-time": "Our average time for approving memberships is %1 hours %2 minutes.",
     "registration-queue-auto-approve-time": "Your membership to this forum will be fully activated in up to %1 hours.",
-    "interstitial.intro": "Se requiere de información adicional antes de crear tu cuenta.",
-    "interstitial.errors-found": "No pudimos completar tu registro:",
+    "interstitial.intro": "We'd like some additional information in order to update your account&hellip;",
+    "interstitial.intro-new": "Quisiéramos solicitar alguna información adicional antes de poder crear tu cuenta...",
+    "interstitial.errors-found": "Please review the entered information:",
     "gdpr_agree_data": "Consiento la recolección y el procesamiento de mi información personal en este sitio web",
     "gdpr_agree_email": "Consiento en recibir correos de informes y notificaciones de este sitio web.",
     "gdpr_consent_denied": "Usted debe dar consentimiento a este sitio para recolectar/procesar su información, así como enviarle correos electrónicos.",

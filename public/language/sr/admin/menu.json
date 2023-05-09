@@ -4,6 +4,7 @@
 	"dashboard/logins": "Logins",
 	"dashboard/users": "Users",
 	"dashboard/topics": "Topics",
+	"dashboard/searches": "Searches",
 	"section-general": "Uopšteno",
 
 	"section-manage": "Menadžment",
@@ -75,7 +76,7 @@
 	"logout": "Izloguj se",
 	"view-forum": "Pogledaj Forum",
 
-	"search.placeholder": "Press &quot;/&quot; to search for settings",
+	"search.placeholder": "Search settings",
 	"search.no-results": "Nema rezultata...",
 	"search.search-forum": "Pretraži forum za <strong></strong>",
 	"search.keep-typing": "Ukucaj više da vidiš rezultate",

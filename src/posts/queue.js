@@ -19,7 +19,7 @@ const socketHelpers = require('../socket.io/helpers');
 
 module.exports = function (Posts) {
 	Posts.getQueuedPosts = async (filter = {}, options = {}) => {
-		options = { metadata: true, ...options };	// defaults
+		options = { metadata: true, ...options }; // defaults
 		let postData = _.cloneDeep(cache.get('post-queue'));
 		if (!postData) {
 			const ids = await db.getSortedSetRange('post:queue', 0, -1);
@@ -42,15 +42,22 @@ module.exports = function (Posts) {
 			});
 			cache.set('post-queue', _.cloneDeep(postData));
 		}
-
+		if (filter.id) {
+			postData = postData.filter(p => p.id === filter.id);
+		}
 		if (options.metadata) {
 			await Promise.all(postData.map(p => addMetaData(p)));
 		}
 
 		// Filter by tid if present
-		if (isFinite(filter.tid)) {
+		if (utils.isNumber(filter.tid)) {
 			const tid = parseInt(filter.tid, 10);
 			postData = postData.filter(item => item.data.tid && parseInt(item.data.tid, 10) === tid);
+		} else if (Array.isArray(filter.tid)) {
+			const tids = filter.tid.map(tid => parseInt(tid, 10));
+			postData = postData.filter(
+				item => item.data.tid && tids.includes(parseInt(item.data.tid, 10))
+			);
 		}
 
 		return postData;
@@ -156,7 +163,7 @@ module.exports = function (Posts) {
 			mergeId: 'post-queue',
 			bodyShort: '[[notifications:post_awaiting_review]]',
 			bodyLong: bodyLong,
-			path: '/post-queue',
+			path: `/post-queue/${id}`,
 		});
 		await notifications.push(notifObj, uids);
 		return {
@@ -230,20 +237,28 @@ module.exports = function (Posts) {
 	Posts.removeFromQueue = async function (id) {
 		const data = await getParsedObject(id);
 		if (!data) {
-			return;
+			return null;
 		}
+		const result = await plugins.hooks.fire('filter:post-queue:removeFromQueue', { data: data });
+		await removeFromQueue(id);
+		plugins.hooks.fire('action:post-queue:removeFromQueue', { data: result.data });
+		return result.data;
+	};
+
+	async function removeFromQueue(id) {
 		await removeQueueNotification(id);
 		await db.sortedSetRemove('post:queue', id);
 		await db.delete(`post:queue:${id}`);
 		cache.del('post-queue');
-		return data;
-	};
+	}
 
 	Posts.submitFromQueue = async function (id) {
-		const data = await getParsedObject(id);
+		let data = await getParsedObject(id);
 		if (!data) {
-			return;
+			return null;
 		}
+		const result = await plugins.hooks.fire('filter:post-queue:submitFromQueue', { data: data });
+		data = result.data;
 		if (data.type === 'topic') {
 			const result = await createTopic(data.data);
 			data.pid = result.postData.pid;
@@ -251,8 +266,13 @@ module.exports = function (Posts) {
 			const result = await createReply(data.data);
 			data.pid = result.pid;
 		}
-		await Posts.removeFromQueue(id);
+		await removeFromQueue(id);
+		plugins.hooks.fire('action:post-queue:submitFromQueue', { data: data });
 		return data;
+	};
+
+	Posts.getFromQueue = async function (id) {
+		return await getParsedObject(id);
 	};
 
 	async function getParsedObject(id) {
@@ -283,14 +303,17 @@ module.exports = function (Posts) {
 	}
 
 	Posts.editQueuedContent = async function (uid, editData) {
-		const canEditQueue = await Posts.canEditQueue(uid, editData);
+		const [canEditQueue, data] = await Promise.all([
+			Posts.canEditQueue(uid, editData, 'edit'),
+			getParsedObject(editData.id),
+		]);
+		if (!data) {
+			throw new Error('[[error:no-post]]');
+		}
 		if (!canEditQueue) {
 			throw new Error('[[error:no-privileges]]');
 		}
-		const data = await getParsedObject(editData.id);
-		if (!data) {
-			return;
-		}
+
 		if (editData.content !== undefined) {
 			data.data.content = editData.content;
 		}
@@ -304,7 +327,7 @@ module.exports = function (Posts) {
 		cache.del('post-queue');
 	};
 
-	Posts.canEditQueue = async function (uid, editData) {
+	Posts.canEditQueue = async function (uid, editData, action) {
 		const [isAdminOrGlobalMod, data] = await Promise.all([
 			user.isAdminOrGlobalMod(uid),
 			getParsedObject(editData.id),
@@ -312,8 +335,8 @@ module.exports = function (Posts) {
 		if (!data) {
 			return false;
 		}
-
-		if (isAdminOrGlobalMod) {
+		const selfPost = parseInt(uid, 10) === parseInt(data.uid, 10);
+		if (isAdminOrGlobalMod || ((action === 'reject' || action === 'edit') && selfPost)) {
 			return true;
 		}
 
@@ -329,5 +352,18 @@ module.exports = function (Posts) {
 			isModeratorOfTargetCid = await user.isModerator(uid, editData.cid);
 		}
 		return isModerator && isModeratorOfTargetCid;
+	};
+
+	Posts.updateQueuedPostsTopic = async function (newTid, tids) {
+		const postData = await Posts.getQueuedPosts({ tid: tids }, { metadata: false });
+		if (postData.length) {
+			postData.forEach((post) => {
+				post.data.tid = newTid;
+			});
+			await db.setObjectBulk(
+				postData.map(p => [`post:queue:${p.id}`, { data: JSON.stringify(p.data) }]),
+			);
+			cache.del('post-queue');
+		}
 	};
 };

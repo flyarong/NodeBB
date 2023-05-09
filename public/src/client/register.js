@@ -2,32 +2,24 @@
 
 
 define('forum/register', [
-	'translator', 'zxcvbn', 'slugify', 'api', 'forum/login', 'jquery-form',
-], function (translator, zxcvbn, slugify, api, Login) {
-	var Register = {};
-	var validationError = false;
-	var successIcon = '';
+	'translator', 'slugify', 'api', 'bootbox', 'forum/login', 'zxcvbn', 'jquery-form',
+], function (translator, slugify, api, bootbox, Login, zxcvbn) {
+	const Register = {};
+	let validationError = false;
+	const successIcon = '';
 
 	Register.init = function () {
-		var email = $('#email');
-		var username = $('#username');
-		var password = $('#password');
-		var password_confirm = $('#password-confirm');
-		var register = $('#register');
+		const username = $('#username');
+		const password = $('#password');
+		const password_confirm = $('#password-confirm');
+		const register = $('#register');
 
 		handleLanguageOverride();
 
 		$('#content #noscript').val('false');
 
-		email.on('blur', function () {
-			if (email.val().length) {
-				validateEmail(email.val());
-			}
-		});
-
-		var query = utils.params();
-		if (query.email && query.token) {
-			email.val(decodeURIComponent(query.email));
+		const query = utils.params();
+		if (query.token) {
 			$('#token').val(query.token);
 		}
 
@@ -58,18 +50,15 @@ define('forum/register', [
 			validationError = false;
 			validatePassword(password.val(), password_confirm.val());
 			validatePasswordConfirm(password.val(), password_confirm.val());
-
-			validateEmail(email.val(), function () {
-				validateUsername(username.val(), callback);
-			});
+			validateUsername(username.val(), callback);
 		}
 
 		// Guard against caps lock
 		Login.capsLockCheck(document.querySelector('#password'), document.querySelector('#caps-lock-warning'));
 
 		register.on('click', function (e) {
-			var registerBtn = $(this);
-			var errorEl = $('#register-error-notify');
+			const registerBtn = $(this);
+			const errorEl = $('#register-error-notify');
 			errorEl.addClass('hidden');
 			e.preventDefault();
 			validateForm(function () {
@@ -89,11 +78,11 @@ define('forum/register', [
 							return;
 						}
 						if (data.next) {
-							var pathname = utils.urlToLocation(data.next).pathname;
+							const pathname = utils.urlToLocation(data.next).pathname;
 
-							var params = utils.params({ url: data.next });
+							const params = utils.params({ url: data.next });
 							params.registered = true;
-							var qs = decodeURIComponent($.param(params));
+							const qs = decodeURIComponent($.param(params));
 
 							window.location.href = pathname + '?' + qs;
 						} else if (data.message) {
@@ -119,41 +108,14 @@ define('forum/register', [
 		});
 
 		// Set initial focus
-		$('#email').focus();
+		$('#username').focus();
 	};
-
-	function validateEmail(email, callback) {
-		callback = callback || function () {};
-		var email_notify = $('#email-notify');
-
-		if (!utils.isEmailValid(email)) {
-			showError(email_notify, '[[error:invalid-email]]');
-			return callback();
-		}
-
-		socket.emit('user.emailExists', {
-			email: email,
-		}, function (err, exists) {
-			if (err) {
-				app.alertError(err.message);
-				return callback();
-			}
-
-			if (exists) {
-				showError(email_notify, '[[error:email-taken]]');
-			} else {
-				showSuccess(email_notify, successIcon);
-			}
-
-			callback();
-		});
-	}
 
 	function validateUsername(username, callback) {
 		callback = callback || function () {};
 
-		var username_notify = $('#username-notify');
-		var userslug = slugify(username);
+		const username_notify = $('#username-notify');
+		const userslug = slugify(username);
 		if (username.length < ajaxify.data.minimumUsernameLength || userslug.length < ajaxify.data.minimumUsernameLength) {
 			showError(username_notify, '[[error:username-too-short]]');
 		} else if (username.length > ajaxify.data.maximumUsernameLength) {
@@ -177,24 +139,19 @@ define('forum/register', [
 	}
 
 	function validatePassword(password, password_confirm) {
-		var password_notify = $('#password-notify');
-		var password_confirm_notify = $('#password-confirm-notify');
-		var passwordStrength = zxcvbn(password);
+		const password_notify = $('#password-notify');
+		const password_confirm_notify = $('#password-confirm-notify');
 
-		if (password.length < ajaxify.data.minimumPasswordLength) {
-			showError(password_notify, '[[reset_password:password_too_short]]');
-		} else if (password.length > 512) {
-			showError(password_notify, '[[error:password-too-long]]');
-		} else if (!utils.isPasswordValid(password)) {
-			showError(password_notify, '[[user:change_password_error]]');
-		} else if (password === $('#username').val()) {
-			showError(password_notify, '[[user:password_same_as_username]]');
-		} else if (password === $('#email').val()) {
-			showError(password_notify, '[[user:password_same_as_email]]');
-		} else if (passwordStrength.score < ajaxify.data.minimumPasswordStrength) {
-			showError(password_notify, '[[user:weak_password]]');
-		} else {
+		try {
+			utils.assertPasswordValidity(password, zxcvbn);
+
+			if (password === $('#username').val()) {
+				throw new Error('[[user:password_same_as_username]]');
+			}
+
 			showSuccess(password_notify, successIcon);
+		} catch (err) {
+			showError(password_notify, err.message);
 		}
 
 		if (password !== password_confirm && password_confirm !== '') {
@@ -203,8 +160,8 @@ define('forum/register', [
 	}
 
 	function validatePasswordConfirm(password, password_confirm) {
-		var password_notify = $('#password-notify');
-		var password_confirm_notify = $('#password-confirm-notify');
+		const password_notify = $('#password-notify');
+		const password_confirm_notify = $('#password-confirm-notify');
 
 		if (!password || password_notify.hasClass('alert-error')) {
 			return;
@@ -240,8 +197,8 @@ define('forum/register', [
 
 	function handleLanguageOverride() {
 		if (!app.user.uid && config.defaultLang !== config.userLang) {
-			var formEl = $('[component="register/local"]');
-			var langEl = $('<input type="hidden" name="userLang" value="' + config.userLang + '" />');
+			const formEl = $('[component="register/local"]');
+			const langEl = $('<input type="hidden" name="userLang" value="' + config.userLang + '" />');
 
 			formEl.append(langEl);
 		}

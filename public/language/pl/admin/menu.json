@@ -4,6 +4,7 @@
 	"dashboard/logins": "Logins",
 	"dashboard/users": "Users",
 	"dashboard/topics": "Topics",
+	"dashboard/searches": "Searches",
 	"section-general": "Ogólne",
 
 	"section-manage": "Zarządzanie",
@@ -75,7 +76,7 @@
 	"logout": "Wyloguj się",
 	"view-forum": "Zobacz forum",
 
-	"search.placeholder": "Naciśnij &quot;/&quot; aby wyszukać ustawienia",
+	"search.placeholder": "Search settings",
 	"search.no-results": "Brak wyników...",
 	"search.search-forum": "Szukaj w forum <strong></strong>",
 	"search.keep-typing": "Wpisz więcej, aby zobaczyć wyniki ...",

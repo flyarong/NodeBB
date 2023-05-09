@@ -4,6 +4,8 @@ const winston = require('winston');
 const validator = require('validator');
 const slugify = require('../slugify');
 
+const meta = require('../meta');
+
 const helpers = module.exports;
 
 helpers.try = function (middleware) {
@@ -32,12 +34,17 @@ helpers.buildBodyClass = function (req, res, templateData = {}) {
 		try {
 			p = slugify(decodeURIComponent(p));
 		} catch (err) {
+			winston.error(`Error decoding URI: ${p}`);
 			winston.error(err.stack);
 			p = '';
 		}
 		p = validator.escape(String(p));
 		parts[index] = index ? `${parts[0]}-${p}` : `page-${p || 'home'}`;
 	});
+
+	if (templateData.template) {
+		parts.push(`template-${templateData.template.name.split('/').join('-')}`);
+	}
 
 	if (templateData.template && templateData.template.topic) {
 		parts.push(`page-topic-category-${templateData.category.cid}`);
@@ -53,5 +60,13 @@ helpers.buildBodyClass = function (req, res, templateData = {}) {
 	}
 
 	parts.push(`page-status-${res.statusCode}`);
+
+	parts.push(`theme-${meta.config['theme:id'].split('-')[2]}`);
+
+	if (req.loggedIn) {
+		parts.push('user-loggedin');
+	} else {
+		parts.push('user-guest');
+	}
 	return parts.join(' ');
 };

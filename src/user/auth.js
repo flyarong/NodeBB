@@ -95,7 +95,7 @@ module.exports = function (User) {
 			const sid = uuidMapping[uuid];
 			const sessionObj = await getSessionFromStore(sid);
 			const expired = !sessionObj || !sessionObj.hasOwnProperty('passport') ||
-				!sessionObj.passport.hasOwnProperty('user')	||
+				!sessionObj.passport.hasOwnProperty('user') ||
 				parseInt(sessionObj.passport.user, 10) !== parseInt(uid, 10);
 			if (expired) {
 				expiredUUIDs.push(uuid);
@@ -135,12 +135,15 @@ module.exports = function (User) {
 		]);
 	};
 
-	User.auth.revokeAllSessions = async function (uids) {
+	User.auth.revokeAllSessions = async function (uids, except) {
 		uids = Array.isArray(uids) ? uids : [uids];
 		const sids = await db.getSortedSetsMembers(uids.map(uid => `uid:${uid}:sessions`));
 		const promises = [];
 		uids.forEach((uid, index) => {
-			promises.push(sids[index].map(s => User.auth.revokeSession(s, uid)));
+			const ids = sids[index].filter(id => id !== except);
+			if (ids.length) {
+				promises.push(ids.map(s => User.auth.revokeSession(s, uid)));
+			}
 		});
 		await Promise.all(promises);
 	};

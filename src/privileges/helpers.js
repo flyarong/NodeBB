@@ -6,9 +6,9 @@ const validator = require('validator');
 
 const groups = require('../groups');
 const user = require('../user');
+const categories = require('../categories');
 const plugins = require('../plugins');
 const translator = require('../translator');
-const utils = require('../utils');
 
 const helpers = module.exports;
 
@@ -185,11 +185,43 @@ helpers.giveOrRescind = async function (method, privileges, cids, members) {
 };
 
 helpers.userOrGroupPrivileges = async function (cid, uidOrGroup, privilegeList) {
-	const tasks = {};
-	privilegeList.forEach((privilege) => {
-		tasks[privilege] = groups.isMember(uidOrGroup, `cid:${cid}:privileges:${privilege}`);
+	const groupNames = privilegeList.map(privilege => `cid:${cid}:privileges:${privilege}`);
+	const isMembers = await groups.isMemberOfGroups(uidOrGroup, groupNames);
+	return _.zipObject(privilegeList, isMembers);
+};
+
+helpers.getUidsWithPrivilege = async (cids, privilege) => {
+	const disabled = (await categories.getCategoriesFields(cids, ['disabled'])).map(obj => obj.disabled);
+
+	const groupNames = cids.reduce((memo, cid) => {
+		memo.push(`cid:${cid}:privileges:${privilege}`);
+		memo.push(`cid:${cid}:privileges:groups:${privilege}`);
+		return memo;
+	}, []);
+
+	const memberSets = await groups.getMembersOfGroups(groupNames);
+	// Every other set is actually a list of user groups, not uids, so convert those to members
+	const sets = memberSets.reduce((memo, set, idx) => {
+		if (idx % 2) {
+			memo.groupNames.push(set);
+		} else {
+			memo.uids.push(set);
+		}
+
+		return memo;
+	}, { groupNames: [], uids: [] });
+
+	const uniqGroups = _.uniq(_.flatten(sets.groupNames));
+	const groupUids = await groups.getMembersOfGroups(uniqGroups);
+	const map = _.zipObject(uniqGroups, groupUids);
+	const uidsByCid = cids.map((cid, index) => {
+		if (disabled[index]) {
+			return [];
+		}
+
+		return _.uniq(sets.uids[index].concat(_.flatten(sets.groupNames[index].map(g => map[g]))));
 	});
-	return await utils.promiseParallel(tasks);
+	return uidsByCid;
 };
 
 require('../promisify')(helpers);

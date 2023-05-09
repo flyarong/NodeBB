@@ -5,23 +5,18 @@ define('topicList', [
 	'handleBack',
 	'topicSelect',
 	'categoryFilter',
+	'tagFilter',
 	'forum/category/tools',
-], function (infinitescroll, handleBack, topicSelect, categoryFilter, categoryTools) {
-	var TopicList = {};
-	var templateName = '';
+	'hooks',
+], function (infinitescroll, handleBack, topicSelect, categoryFilter, tagFilter, categoryTools, hooks) {
+	const TopicList = {};
+	let templateName = '';
 
-	var tplToSort = {
-		recent: 'recent',
-		unread: 'unread',
-		popular: 'posts',
-		top: 'votes',
-	};
+	let newTopicCount = 0;
+	let newPostCount = 0;
 
-	var newTopicCount = 0;
-	var newPostCount = 0;
-
-	var loadTopicsCallback;
-	var topicListEl;
+	let loadTopicsCallback;
+	let topicListEl;
 
 	const scheduledTopics = [];
 
@@ -39,7 +34,7 @@ define('topicList', [
 		categoryTools.init();
 
 		TopicList.watchForNewPosts();
-		var states = ['watching'];
+		const states = ['watching'];
 		if (ajaxify.data.selectedFilter && ajaxify.data.selectedFilter.filter === 'watched') {
 			states.push('notwatching', 'ignoring');
 		} else if (template !== 'unread') {
@@ -50,13 +45,15 @@ define('topicList', [
 			states: states,
 		});
 
+		tagFilter.init($('[component="tag/filter"]'));
+
 		if (!config.usePagination) {
 			infinitescroll.init(TopicList.loadMoreTopics);
 		}
 
 		handleBack.init(function (after, handleBackCallback) {
 			loadTopicsCallback(after, 1, function (data, loadCallback) {
-				TopicList.onTopicsLoaded(templateName, data.topics, ajaxify.data.showSelect, 1, function () {
+				onTopicsLoaded(templateName, data.topics, ajaxify.data.showSelect, 1, function () {
 					handleBackCallback();
 					loadCallback();
 				});
@@ -71,7 +68,7 @@ define('topicList', [
 			TopicList.loadMoreTopics(1);
 		});
 
-		$(window).trigger('action:topics.loaded', { topics: ajaxify.data.topics });
+		hooks.fire('action:topics.loaded', { topics: ajaxify.data.topics });
 	};
 
 	function findTopicListElement() {
@@ -81,9 +78,6 @@ define('topicList', [
 	}
 
 	TopicList.watchForNewPosts = function () {
-		$('#new-topics-alert').on('click', function () {
-			$(this).addClass('hide');
-		});
 		newPostCount = 0;
 		newTopicCount = 0;
 		TopicList.removeListeners();
@@ -107,19 +101,22 @@ define('topicList', [
 		const category = d.template.category &&
 			parseInt(d.cid, 10) !== parseInt(data.cid, 10);
 
-		if (categories || filterWatched || category || scheduledTopics.includes(data.tid)) {
-			return;
-		}
+		const preventAlert = !!(categories || filterWatched || category || scheduledTopics.includes(data.tid));
+		hooks.fire('filter:topicList.onNewTopic', { topic: data, preventAlert }).then((result) => {
+			if (result.preventAlert) {
+				return;
+			}
 
-		if (data.scheduled && data.tid) {
-			scheduledTopics.push(data.tid);
-		}
-		newTopicCount += 1;
-		updateAlertText();
+			if (data.scheduled && data.tid) {
+				scheduledTopics.push(data.tid);
+			}
+			newTopicCount += 1;
+			updateAlertText();
+		});
 	}
 
 	function onNewPost(data) {
-		var post = data.posts[0];
+		const post = data.posts[0];
 		if (!post || !post.topic || post.topic.isFollowing) {
 			return;
 		}
@@ -138,79 +135,50 @@ define('topicList', [
 		const category = d.template.category &&
 			parseInt(d.cid, 10) !== parseInt(post.topic.cid, 10);
 
-		if (isMain || categories || filterNew || filterWatched || category) {
-			return;
-		}
+		const preventAlert = !!(isMain || categories || filterNew || filterWatched || category);
+		hooks.fire('filter:topicList.onNewPost', { post, preventAlert }).then((result) => {
+			if (result.preventAlert) {
+				return;
+			}
 
-		newPostCount += 1;
-		updateAlertText();
+			newPostCount += 1;
+			updateAlertText();
+		});
 	}
 
 	function updateAlertText() {
-		var text = '';
-
-		if (newTopicCount === 0) {
-			if (newPostCount === 1) {
-				text = '[[recent:there-is-a-new-post]]';
-			} else if (newPostCount > 1) {
-				text = '[[recent:there-are-new-posts, ' + newPostCount + ']]';
-			}
-		} else if (newTopicCount === 1) {
-			if (newPostCount === 0) {
-				text = '[[recent:there-is-a-new-topic]]';
-			} else if (newPostCount === 1) {
-				text = '[[recent:there-is-a-new-topic-and-a-new-post]]';
-			} else if (newPostCount > 1) {
-				text = '[[recent:there-is-a-new-topic-and-new-posts, ' + newPostCount + ']]';
-			}
-		} else if (newTopicCount > 1) {
-			if (newPostCount === 0) {
-				text = '[[recent:there-are-new-topics, ' + newTopicCount + ']]';
-			} else if (newPostCount === 1) {
-				text = '[[recent:there-are-new-topics-and-a-new-post, ' + newTopicCount + ']]';
-			} else if (newPostCount > 1) {
-				text = '[[recent:there-are-new-topics-and-new-posts, ' + newTopicCount + ', ' + newPostCount + ']]';
-			}
+		if (newTopicCount > 0 || newPostCount > 0) {
+			$('#new-topics-alert').removeClass('hide').fadeIn('slow');
+			$('#category-no-topics').addClass('hide');
 		}
-
-		text += ' [[recent:click-here-to-reload]]';
-
-		$('#new-topics-alert').translateText(text).removeClass('hide').fadeIn('slow');
-		$('#category-no-topics').addClass('hide');
 	}
 
 	TopicList.loadMoreTopics = function (direction) {
 		if (!topicListEl.length || !topicListEl.children().length) {
 			return;
 		}
-		var topics = topicListEl.find('[component="category/topic"]');
-		var afterEl = direction > 0 ? topics.last() : topics.first();
-		var after = (parseInt(afterEl.attr('data-index'), 10) || 0) + (direction > 0 ? 1 : 0);
+		const topics = topicListEl.find('[component="category/topic"]');
+		const afterEl = direction > 0 ? topics.last() : topics.first();
+		const after = (parseInt(afterEl.attr('data-index'), 10) || 0) + (direction > 0 ? 1 : 0);
 
 		if (!utils.isNumber(after) || (after === 0 && topicListEl.find('[component="category/topic"][data-index="0"]').length)) {
 			return;
 		}
 
 		loadTopicsCallback(after, direction, function (data, done) {
-			TopicList.onTopicsLoaded(templateName, data.topics, ajaxify.data.showSelect, direction, done);
+			onTopicsLoaded(templateName, data.topics, ajaxify.data.showSelect, direction, done);
 		});
 	};
 
+	function calculateNextPage(after, direction) {
+		return Math.floor(after / config.topicsPerPage) + (direction > 0 ? 1 : 0);
+	}
+
 	function loadTopicsAfter(after, direction, callback) {
 		callback = callback || function () {};
-		var query = utils.params();
-		infinitescroll.loadMore('topics.loadMoreSortedTopics', {
-			after: after,
-			direction: direction,
-			sort: tplToSort[templateName],
-			count: config.topicsPerPage,
-			cid: query.cid,
-			tags: query.tags,
-			query: query,
-			term: ajaxify.data.selectedTerm && ajaxify.data.selectedTerm.term,
-			filter: ajaxify.data.selectedFilter.filter,
-			set: topicListEl.attr('data-set') ? topicListEl.attr('data-set') : 'topics:recent',
-		}, callback);
+		const query = utils.params();
+		query.page = calculateNextPage(after, direction);
+		infinitescroll.loadMoreXhr(query, callback);
 	}
 
 	function filterTopicsOnDom(topics) {
@@ -219,7 +187,7 @@ define('topicList', [
 		});
 	}
 
-	TopicList.onTopicsLoaded = function (templateName, topics, showSelect, direction, callback) {
+	function onTopicsLoaded(templateName, topics, showSelect, direction, callback) {
 		if (!topics || !topics.length) {
 			$('#load-more-btn').hide();
 			return callback();
@@ -231,9 +199,9 @@ define('topicList', [
 			return callback();
 		}
 
-		var after;
-		var before;
-		var topicEls = topicListEl.find('[component="category/topic"]');
+		let after;
+		let before;
+		const topicEls = topicListEl.find('[component="category/topic"]');
 
 		if (direction > 0 && topics.length) {
 			after = topicEls.last();
@@ -241,7 +209,7 @@ define('topicList', [
 			before = topicEls.first();
 		}
 
-		var tplData = {
+		const tplData = {
 			topics: topics,
 			showSelect: showSelect,
 			template: {
@@ -250,6 +218,8 @@ define('topicList', [
 		};
 		tplData.template[templateName] = true;
 
+		hooks.fire('action:topics.loading', { topics: topics, after: after, before: before });
+
 		app.parseAndTranslate(templateName, 'topics', tplData, function (html) {
 			topicListEl.removeClass('hidden');
 			$('#category-no-topics').remove();
@@ -257,8 +227,8 @@ define('topicList', [
 			if (after && after.length) {
 				html.insertAfter(after);
 			} else if (before && before.length) {
-				var height = $(document).height();
-				var scrollTop = $(window).scrollTop();
+				const height = $(document).height();
+				const scrollTop = $(window).scrollTop();
 
 				html.insertBefore(before);
 
@@ -272,12 +242,11 @@ define('topicList', [
 			}
 
 			html.find('.timeago').timeago();
-			app.createUserTooltips(html);
 			utils.makeNumbersHumanReadable(html.find('.human-readable-number'));
-			$(window).trigger('action:topics.loaded', { topics: topics, template: templateName });
+			hooks.fire('action:topics.loaded', { topics: topics, template: templateName });
 			callback();
 		});
-	};
+	}
 
 	return TopicList;
 });

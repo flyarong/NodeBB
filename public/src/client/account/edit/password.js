@@ -1,9 +1,9 @@
 'use strict';
 
 define('forum/account/edit/password', [
-	'forum/account/header', 'translator', 'zxcvbn', 'api',
-], function (header, translator, zxcvbn, api) {
-	var AccountEditPassword = {};
+	'forum/account/header', 'translator', 'zxcvbn', 'api', 'alerts',
+], function (header, translator, zxcvbn, api, alerts) {
+	const AccountEditPassword = {};
 
 	AccountEditPassword.init = function () {
 		header.init();
@@ -12,32 +12,30 @@ define('forum/account/edit/password', [
 	};
 
 	function handlePasswordChange() {
-		var currentPassword = $('#inputCurrentPassword');
-		var password_notify = $('#password-notify');
-		var password_confirm_notify = $('#password-confirm-notify');
-		var password = $('#inputNewPassword');
-		var password_confirm = $('#inputNewPasswordAgain');
-		var passwordvalid = false;
-		var passwordsmatch = false;
+		const currentPassword = $('#inputCurrentPassword');
+		const password_notify = $('#password-notify');
+		const password_confirm_notify = $('#password-confirm-notify');
+		const password = $('#inputNewPassword');
+		const password_confirm = $('#inputNewPasswordAgain');
+		let passwordvalid = false;
+		let passwordsmatch = false;
 
 		function onPasswordChanged() {
-			var passwordStrength = zxcvbn(password.val());
 			passwordvalid = false;
-			if (password.val().length < ajaxify.data.minimumPasswordLength) {
-				showError(password_notify, '[[reset_password:password_too_short]]');
-			} else if (password.val().length > 512) {
-				showError(password_notify, '[[error:password-too-long]]');
-			} else if (!utils.isPasswordValid(password.val())) {
-				showError(password_notify, '[[user:change_password_error]]');
-			} else if (password.val() === ajaxify.data.username) {
-				showError(password_notify, '[[user:password_same_as_username]]');
-			} else if (password.val() === ajaxify.data.email) {
-				showError(password_notify, '[[user:password_same_as_email]]');
-			} else if (passwordStrength.score < ajaxify.data.minimumPasswordStrength) {
-				showError(password_notify, '[[user:weak_password]]');
-			} else {
+
+			try {
+				utils.assertPasswordValidity(password.val(), zxcvbn);
+
+				if (password.val() === ajaxify.data.username) {
+					throw new Error('[[user:password_same_as_username]]');
+				} else if (password.val() === ajaxify.data.email) {
+					throw new Error('[[user:password_same_as_email]]');
+				}
+
 				showSuccess(password_notify);
 				passwordvalid = true;
+			} catch (err) {
+				showError(password_notify, err.message);
 			}
 		}
 
@@ -65,7 +63,7 @@ define('forum/account/edit/password', [
 			onPasswordChanged();
 			onPasswordConfirmChanged();
 
-			var btn = $(this);
+			const btn = $(this);
 			if (passwordvalid && passwordsmatch) {
 				btn.addClass('disabled').find('i').removeClass('hide');
 				api.put('/users/' + ajaxify.data.theirid + '/password', {
@@ -79,6 +77,7 @@ define('forum/account/edit/password', [
 							ajaxify.go('user/' + ajaxify.data.userslug + '/edit');
 						}
 					})
+					.catch(alerts.error)
 					.finally(() => {
 						btn.removeClass('disabled').find('i').addClass('hide');
 						currentPassword.val('');
@@ -91,11 +90,11 @@ define('forum/account/edit/password', [
 					});
 			} else {
 				if (!passwordsmatch) {
-					app.alertError('[[user:change_password_error_match]]');
+					alerts.error('[[user:change_password_error_match]]');
 				}
 
 				if (!passwordvalid) {
-					app.alertError('[[user:change_password_error]]');
+					alerts.error('[[user:change_password_error]]');
 				}
 			}
 			return false;

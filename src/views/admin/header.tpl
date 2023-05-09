@@ -2,10 +2,10 @@
 <html>
 	<head>
 		<title>{title}</title>
-		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+		{{{each metaTags}}}{function.buildMetaTag}{{{end}}}
+		{{{each linkTags}}}{function.buildLinkTag}{{{end}}}
 		<link rel="stylesheet" type="text/css" href="{relative_path}/assets/admin.css?{cache-buster}" />
-		<link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 
 		<script>
 			var config = JSON.parse('{{configJSON}}');
@@ -17,11 +17,11 @@
 			};
 		</script>
 
-		<script type="text/javascript" src="{relative_path}/assets/acp.min.js?{cache-buster}"></script>
+		<script type="text/javascript" src="{relative_path}/assets/admin.min.js?{cache-buster}"></script>
 
-		<!-- BEGIN scripts -->
-		<script type="text/javascript" src="{scripts.src}"></script>
-		<!-- END scripts -->
+		{{{ each scripts }}}
+		<script type="text/javascript" src="{./src}"></script>
+		{{{ end }}}
 	</head>
 
 	<body class="admin {bodyClass}">

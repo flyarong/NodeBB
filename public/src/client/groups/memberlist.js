@@ -1,10 +1,9 @@
 'use strict';
 
-define('forum/groups/memberlist', ['api'], function (api) {
-	var MemberList = {};
-	var searchInterval;
-	var groupName;
-	var templateName;
+define('forum/groups/memberlist', ['api', 'bootbox', 'alerts'], function (api, bootbox, alerts) {
+	const MemberList = {};
+	let groupName;
+	let templateName;
 
 	MemberList.init = function (_templateName) {
 		templateName = _templateName || 'groups/details';
@@ -18,14 +17,14 @@ define('forum/groups/memberlist', ['api'], function (api) {
 	function handleMemberAdd() {
 		$('[component="groups/members/add"]').on('click', function () {
 			app.parseAndTranslate('admin/partials/groups/add-members', {}, function (html) {
-				var foundUsers = [];
-				var modal = bootbox.dialog({
+				const foundUsers = [];
+				const modal = bootbox.dialog({
 					title: '[[groups:details.add-member]]',
 					message: html,
 					buttons: {
 						ok: {
 							callback: function () {
-								var users = [];
+								const users = [];
 								modal.find('[data-uid][data-selected]').each(function (index, el) {
 									users.push(foundUsers[$(el).attr('data-uid')]);
 								});
@@ -37,7 +36,7 @@ define('forum/groups/memberlist', ['api'], function (api) {
 					},
 				});
 				modal.on('click', '[data-username]', function () {
-					var isSelected = $(this).attr('data-selected') === '1';
+					const isSelected = $(this).attr('data-selected') === '1';
 					if (isSelected) {
 						$(this).removeAttr('data-selected');
 					} else {
@@ -51,7 +50,7 @@ define('forum/groups/memberlist', ['api'], function (api) {
 						paginate: false,
 					}, function (err, result) {
 						if (err) {
-							return app.alertError(err.message);
+							return alerts.error(err);
 						}
 						result.users.forEach(function (user) {
 							foundUsers[user.uid] = user;
@@ -75,45 +74,42 @@ define('forum/groups/memberlist', ['api'], function (api) {
 			});
 			callback();
 		}
-		var uids = users.map(function (user) { return user.uid; });
+		const uids = users.map(function (user) { return user.uid; });
 		if (groupName === 'administrators') {
 			socket.emit('admin.user.makeAdmins', uids, function (err) {
 				if (err) {
-					return app.alertError(err);
+					return alerts.error(err);
 				}
 				done();
 			});
 		} else {
-			Promise.all(uids.map(uid => api.put('/groups/' + ajaxify.data.group.slug + '/membership/' + uid))).then(done).catch(app.alertError);
+			Promise.all(uids.map(uid => api.put('/groups/' + ajaxify.data.group.slug + '/membership/' + uid))).then(done).catch(alerts.error);
 		}
 	}
 
 	function handleMemberSearch() {
-		$('[component="groups/members/search"]').on('keyup', function () {
-			var query = $(this).val();
-			if (searchInterval) {
-				clearInterval(searchInterval);
-				searchInterval = 0;
-			}
-
-			searchInterval = setTimeout(function () {
-				socket.emit('groups.searchMembers', { groupName: groupName, query: query }, function (err, results) {
-					if (err) {
-						return app.alertError(err.message);
-					}
-					parseAndTranslate(results.users, function (html) {
-						$('[component="groups/members"] tbody').html(html);
-						$('[component="groups/members"]').attr('data-nextstart', 20);
-					});
+		const searchEl = $('[component="groups/members/search"]');
+		searchEl.on('keyup', utils.debounce(function () {
+			const query = searchEl.val();
+			socket.emit('groups.searchMembers', {
+				groupName: groupName,
+				query: query,
+			}, function (err, results) {
+				if (err) {
+					return alerts.error(err);
+				}
+				parseAndTranslate(results.users, function (html) {
+					$('[component="groups/members"] tbody').html(html);
+					$('[component="groups/members"]').attr('data-nextstart', 20);
 				});
-			}, 250);
-		});
+			});
+		}, 250));
 	}
 
 	function handleMemberInfiniteScroll() {
 		$('[component="groups/members"] tbody').on('scroll', function () {
-			var $this = $(this);
-			var bottom = ($this[0].scrollHeight - $this.innerHeight()) * 0.9;
+			const $this = $(this);
+			const bottom = ($this[0].scrollHeight - $this.innerHeight()) * 0.9;
 
 			if ($this.scrollTop() > bottom && !$('[component="groups/members/search"]').val()) {
 				loadMoreMembers();
@@ -122,7 +118,7 @@ define('forum/groups/memberlist', ['api'], function (api) {
 	}
 
 	function loadMoreMembers() {
-		var members = $('[component="groups/members"]');
+		const members = $('[component="groups/members"]');
 		if (members.attr('loading')) {
 			return;
 		}
@@ -133,7 +129,7 @@ define('forum/groups/memberlist', ['api'], function (api) {
 			after: members.attr('data-nextstart'),
 		}, function (err, data) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
 			if (data && data.users.length) {

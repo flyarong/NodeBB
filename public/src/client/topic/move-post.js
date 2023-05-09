@@ -4,11 +4,11 @@
 define('forum/topic/move-post', [
 	'components', 'postSelect', 'translator', 'alerts', 'api',
 ], function (components, postSelect, translator, alerts, api) {
-	var MovePost = {};
+	const MovePost = {};
 
-	var moveModal;
-	var moveCommit;
-	var fromTid;
+	let moveModal;
+	let moveCommit;
+	let fromTid;
 
 	MovePost.init = function (postEl) {
 		if (moveModal) {
@@ -22,7 +22,7 @@ define('forum/topic/move-post', [
 
 			$('body').append(moveModal);
 
-			moveModal.find('.close,#move_posts_cancel').on('click', closeMoveModal);
+			moveModal.find('#move_posts_cancel').on('click', closeMoveModal);
 			moveModal.find('#topicId').on('keyup', utils.debounce(checkMoveButtonEnable, 200));
 			postSelect.init(onPostToggled);
 			showPostsSelected();
@@ -40,25 +40,29 @@ define('forum/topic/move-post', [
 					return;
 				}
 				moveCommit.attr('disabled', true);
-				var data = {
+				const data = {
 					pids: postSelect.pids.slice(),
 					tid: targetTid,
 				};
-				alerts.alert({
-					alert_id: 'pids_move_' + postSelect.pids.join('-'),
-					title: '[[topic:thread_tools.move-posts]]',
-					message: '[[topic:topic_move_posts_success]]',
-					type: 'success',
-					timeout: 10000,
-					timeoutfn: function () {
-						movePosts(data);
-					},
-					clickfn: function (alert, params) {
-						delete params.timeoutfn;
-						app.alertSuccess('[[topic:topic_move_posts_undone]]');
-						moveCommit.removeAttr('disabled');
-					},
-				});
+				if (config.undoTimeout > 0) {
+					return alerts.alert({
+						alert_id: 'pids_move_' + postSelect.pids.join('-'),
+						title: '[[topic:thread_tools.move-posts]]',
+						message: '[[topic:topic_move_posts_success]]',
+						type: 'success',
+						timeout: 10000,
+						timeoutfn: function () {
+							movePosts(data);
+						},
+						clickfn: function (alert, params) {
+							delete params.timeoutfn;
+							alerts.success('[[topic:topic_move_posts_undone]]');
+							moveCommit.removeAttr('disabled');
+						},
+					});
+				}
+
+				movePosts(data);
 			});
 		});
 	};
@@ -67,8 +71,8 @@ define('forum/topic/move-post', [
 		if (!moveModal) {
 			return;
 		}
-		var tidInput = moveModal.find('#topicId');
-		var targetTid = null;
+		const tidInput = moveModal.find('#topicId');
+		let targetTid = null;
 		if (ajaxify.data.template.topic && ajaxify.data.tid &&
 			parseInt(ajaxify.data.tid, 10) !== fromTid
 		) {
@@ -81,7 +85,7 @@ define('forum/topic/move-post', [
 	}
 
 	function getTargetTid() {
-		var tidInput = moveModal.find('#topicId');
+		const tidInput = moveModal.find('#topicId');
 		if (tidInput.length && tidInput.val()) {
 			return tidInput.val();
 		}
@@ -92,17 +96,17 @@ define('forum/topic/move-post', [
 		if (!moveModal) {
 			return;
 		}
-		var targetTid = getTargetTid();
+		const targetTid = getTargetTid();
 		if (postSelect.pids.length) {
 			if (targetTid && parseInt(targetTid, 10) !== parseInt(fromTid, 10)) {
 				api.get('/topics/' + targetTid, {}).then(function (data) {
 					if (!data || !data.tid) {
-						return app.alertError('[[error:no-topic]]');
+						return alerts.error('[[error:no-topic]]');
 					}
 					if (data.scheduled) {
-						return app.alertError('[[error:cant-move-posts-to-scheduled]]');
+						return alerts.error('[[error:cant-move-posts-to-scheduled]]');
 					}
-					var translateStr = translator.compile('topic:x-posts-will-be-moved-to-y', postSelect.pids.length, data.title);
+					const translateStr = translator.compile('topic:x-posts-will-be-moved-to-y', postSelect.pids.length, data.title);
 					moveModal.find('#pids').translateHtml(translateStr);
 				});
 			} else {
@@ -117,7 +121,7 @@ define('forum/topic/move-post', [
 		if (!moveModal) {
 			return;
 		}
-		var targetTid = getTargetTid();
+		const targetTid = getTargetTid();
 		if (postSelect.pids.length && targetTid &&
 			parseInt(targetTid, 10) !== parseInt(fromTid, 10)
 		) {
@@ -147,7 +151,7 @@ define('forum/topic/move-post', [
 			});
 
 			closeMoveModal();
-		}).catch(app.alertError);
+		}).catch(alerts.error);
 	}
 
 	function closeMoveModal() {

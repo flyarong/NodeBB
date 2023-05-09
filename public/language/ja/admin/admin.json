@@ -3,5 +3,7 @@
 	"alert.confirm-restart": "NodeBBを本当に再起動しますか？",
 
 	"acp-title": "%1| NodeBB管理画面",
-	"settings-header-contents": "コンテンツ"
+	"settings-header-contents": "コンテンツ",
+	"changes-not-saved": "Changes Not Saved",
+	"changes-not-saved-message": "NodeBB encountered a problem saving your changes. (%1)"
 }

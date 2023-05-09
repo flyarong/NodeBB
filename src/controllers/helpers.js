@@ -1,16 +1,19 @@
 'use strict';
 
-const colors = require('colors/safe');
 const nconf = require('nconf');
 const validator = require('validator');
 const querystring = require('querystring');
 const _ = require('lodash');
+const chalk = require('chalk');
 
+const translator = require('../translator');
 const user = require('../user');
 const privileges = require('../privileges');
 const categories = require('../categories');
 const plugins = require('../plugins');
 const meta = require('../meta');
+const middlewareHelpers = require('../middleware/helpers');
+const utils = require('../utils');
 
 const helpers = module.exports;
 
@@ -19,7 +22,10 @@ const url = nconf.get('url');
 
 helpers.noScriptErrors = async function (req, res, error, httpStatus) {
 	if (req.body.noscript !== 'true') {
-		return res.status(httpStatus).send(error);
+		if (typeof error === 'string') {
+			return res.status(httpStatus).send(error);
+		}
+		return res.status(httpStatus).json(error);
 	}
 	const middleware = require('../middleware');
 	const httpStatusString = httpStatus.toString();
@@ -116,22 +122,33 @@ helpers.buildTerms = function (url, term, query) {
 };
 
 helpers.notAllowed = async function (req, res, error) {
-	const data = await plugins.hooks.fire('filter:helpers.notAllowed', {
-		req: req,
-		res: res,
-		error: error,
-	});
+	({ error } = await plugins.hooks.fire('filter:helpers.notAllowed', { req, res, error }));
+
+	await plugins.hooks.fire('response:helpers.notAllowed', { req, res, error });
+	if (res.headersSent) {
+		return;
+	}
 
 	if (req.loggedIn || req.uid === -1) {
 		if (res.locals.isAPI) {
-			helpers.formatApiResponse(403, res, error);
+			if (req.originalUrl.startsWith(`${relative_path}/api/v3`)) {
+				helpers.formatApiResponse(403, res, error);
+			} else {
+				res.status(403).json({
+					path: req.path.replace(/^\/api/, ''),
+					loggedIn: req.loggedIn,
+					error: error,
+					title: '[[global:403.title]]',
+					bodyClass: middlewareHelpers.buildBodyClass(req, res),
+				});
+			}
 		} else {
 			const middleware = require('../middleware');
 			await middleware.buildHeaderAsync(req, res);
 			res.status(403).render('403', {
 				path: req.path,
 				loggedIn: req.loggedIn,
-				error: data.error,
+				error,
 				title: '[[global:403.title]]',
 			});
 		}
@@ -211,7 +228,7 @@ helpers.buildBreadcrumbs = function (crumbs) {
 	crumbs.forEach((crumb) => {
 		if (crumb) {
 			if (crumb.url) {
-				crumb.url = relative_path + crumb.url;
+				crumb.url = `${utils.isRelativeUrl(crumb.url) ? relative_path : ''}${crumb.url}`;
 			}
 			breadcrumbs.push(crumb);
 		}
@@ -231,7 +248,7 @@ helpers.buildTitle = function (pageTitle) {
 
 helpers.getCategories = async function (set, uid, privilege, selectedCid) {
 	const cids = await categories.getCidsByPrivilege(set, uid, privilege);
-	return await getCategoryData(cids, uid, selectedCid, privilege);
+	return await getCategoryData(cids, uid, selectedCid, Object.values(categories.watchStates), privilege);
 };
 
 helpers.getCategoriesByStates = async function (uid, selectedCid, states, privilege = 'topics:read') {
@@ -240,44 +257,23 @@ helpers.getCategoriesByStates = async function (uid, selectedCid, states, privil
 };
 
 async function getCategoryData(cids, uid, selectedCid, states, privilege) {
-	if (selectedCid && !Array.isArray(selectedCid)) {
-		selectedCid = [selectedCid];
-	}
-	selectedCid = selectedCid && selectedCid.map(String);
-
-	const visibleCategories = await helpers.getVisibleCategories({
-		cids, uid, states, privilege, showLinks: false,
-	});
+	const [visibleCategories, selectData] = await Promise.all([
+		helpers.getVisibleCategories({
+			cids, uid, states, privilege, showLinks: false,
+		}),
+		helpers.getSelectedCategory(selectedCid),
+	]);
 
 	const categoriesData = categories.buildForSelectCategories(visibleCategories, ['disabledClass']);
 
-	let selectedCategory = [];
-	const selectedCids = [];
 	categoriesData.forEach((category) => {
-		category.selected = selectedCid ? selectedCid.includes(String(category.cid)) : false;
-		if (category.selected) {
-			selectedCategory.push(category);
-			selectedCids.push(category.cid);
-		}
+		category.selected = selectData.selectedCids.includes(category.cid);
 	});
-	selectedCids.sort((a, b) => a - b);
-
-	if (selectedCategory.length > 1) {
-		selectedCategory = {
-			icon: 'fa-plus',
-			name: '[[unread:multiple-categories-selected]]',
-			bgColor: '#ddd',
-		};
-	} else if (selectedCategory.length === 1) {
-		selectedCategory = selectedCategory[0];
-	} else {
-		selectedCategory = null;
-	}
-
+	selectData.selectedCids.sort((a, b) => a - b);
 	return {
 		categories: categoriesData,
-		selectedCategory: selectedCategory,
-		selectedCids: selectedCids,
+		selectedCategory: selectData.selectedCategory,
+		selectedCids: selectData.selectedCids,
 	};
 }
 
@@ -336,46 +332,71 @@ helpers.getVisibleCategories = async function (params) {
 	});
 };
 
-helpers.getSelectedCategory = async function (cid) {
-	if (cid && !Array.isArray(cid)) {
-		cid = [cid];
+helpers.getSelectedCategory = async function (cids) {
+	if (cids && !Array.isArray(cids)) {
+		cids = [cids];
 	}
-	cid = cid && cid.map(cid => parseInt(cid, 10));
-	let selectedCategories = await categories.getCategoriesData(cid);
-
+	cids = cids && cids.map(cid => parseInt(cid, 10));
+	let selectedCategories = await categories.getCategoriesData(cids);
+	const selectedCids = selectedCategories.map(c => c && c.cid).filter(Boolean);
 	if (selectedCategories.length > 1) {
 		selectedCategories = {
 			icon: 'fa-plus',
 			name: '[[unread:multiple-categories-selected]]',
 			bgColor: '#ddd',
 		};
-	} else if (selectedCategories.length === 1) {
+	} else if (selectedCategories.length === 1 && selectedCategories[0]) {
 		selectedCategories = selectedCategories[0];
 	} else {
 		selectedCategories = null;
 	}
 	return {
-		selectedCids: cid || [],
+		selectedCids: selectedCids,
 		selectedCategory: selectedCategories,
 	};
 };
 
+helpers.getSelectedTag = function (tags) {
+	if (tags && !Array.isArray(tags)) {
+		tags = [tags];
+	}
+	tags = tags || [];
+	const tagData = tags.map(t => validator.escape(String(t)));
+	let selectedTag = null;
+	if (tagData.length) {
+		selectedTag = {
+			label: tagData.join(', '),
+		};
+	}
+	return {
+		selectedTags: tagData,
+		selectedTag: selectedTag,
+	};
+};
+
 helpers.trimChildren = function (category) {
-	if (Array.isArray(category.children)) {
+	if (category && Array.isArray(category.children)) {
 		category.children = category.children.slice(0, category.subCategoriesPerPage);
 		category.children.forEach((child) => {
-			child.children = undefined;
+			if (category.isSection) {
+				helpers.trimChildren(child);
+			} else {
+				child.children = undefined;
+			}
 		});
 	}
 };
 
 helpers.setCategoryTeaser = function (category) {
 	if (Array.isArray(category.posts) && category.posts.length && category.posts[0]) {
+		const post = category.posts[0];
 		category.teaser = {
-			url: `${nconf.get('relative_path')}/post/${category.posts[0].pid}`,
-			timestampISO: category.posts[0].timestampISO,
-			pid: category.posts[0].pid,
-			topic: category.posts[0].topic,
+			url: `${nconf.get('relative_path')}/post/${post.pid}`,
+			timestampISO: post.timestampISO,
+			pid: post.pid,
+			index: post.index,
+			topic: post.topic,
+			user: post.user,
 		};
 	}
 };
@@ -430,11 +451,26 @@ helpers.formatApiResponse = async (statusCode, res, payload) => {
 	}
 
 	if (String(statusCode).startsWith('2')) {
+		if (res.req.loggedIn) {
+			res.set('cache-control', 'private');
+		}
+
+		let code = 'ok';
+		let message = 'OK';
+		switch (statusCode) {
+			case 202:
+				code = 'accepted';
+				message = 'Accepted';
+				break;
+
+			case 204:
+				code = 'no-content';
+				message = 'No Content';
+				break;
+		}
+
 		res.status(statusCode).json({
-			status: {
-				code: 'ok',
-				message: 'OK',
-			},
+			status: { code, message },
 			response: payload || {},
 		});
 	} else if (payload instanceof Error) {
@@ -442,7 +478,7 @@ helpers.formatApiResponse = async (statusCode, res, payload) => {
 		const response = {};
 
 		// Update status code based on some common error codes
-		switch (payload.message) {
+		switch (message) {
 			case '[[error:user-banned]]':
 				Object.assign(response, await generateBannedResponse(res));
 				// intentional fall through
@@ -454,20 +490,30 @@ helpers.formatApiResponse = async (statusCode, res, payload) => {
 			case '[[error:invalid-uid]]':
 				statusCode = 401;
 				break;
+
+			case '[[error:no-topic]]':
+				statusCode = 404;
+				break;
 		}
 
-		const returnPayload = helpers.generateError(statusCode, message);
+		if (message.startsWith('[[error:required-parameters-missing, ')) {
+			const params = message.slice('[[error:required-parameters-missing, '.length, -2).split(' ');
+			Object.assign(response, { params });
+		}
+
+		const returnPayload = await helpers.generateError(statusCode, message, res);
 		returnPayload.response = response;
 
 		if (global.env === 'development') {
 			returnPayload.stack = payload.stack;
-			process.stdout.write(`[${colors.yellow('api')}] Exception caught, error with stack trace follows:\n`);
+			process.stdout.write(`[${chalk.yellow('api')}] Exception caught, error with stack trace follows:\n`);
 			process.stdout.write(payload.stack);
 		}
 		res.status(statusCode).json(returnPayload);
 	} else if (!payload) {
 		// Non-2xx statusCode, generate predefined error
-		res.status(statusCode).json(helpers.generateError(statusCode));
+		const returnPayload = await helpers.generateError(statusCode, null, res);
+		res.status(statusCode).json(returnPayload);
 	}
 };
 
@@ -490,60 +536,60 @@ async function generateBannedResponse(res) {
 	return response;
 }
 
-helpers.generateError = (statusCode, message) => {
+helpers.generateError = async (statusCode, message, res) => {
+	async function translateMessage(message) {
+		const { req } = res;
+		const settings = req.query.lang ? null : await user.getSettings(req.uid);
+		const language = String(req.query.lang || settings.userLang || meta.config.defaultLang);
+		return await translator.translate(message, language);
+	}
+	if (message && message.startsWith('[[')) {
+		message = await translateMessage(message);
+	}
+
 	const payload = {
 		status: {
 			code: 'internal-server-error',
-			message: 'An unexpected error was encountered while attempting to service your request.',
+			message: message || await translateMessage(`[[error:api.${statusCode}]]`),
 		},
 		response: {},
 	};
 
-	// Need to turn all these into translation strings
 	switch (statusCode) {
 		case 400:
 			payload.status.code = 'bad-request';
-			payload.status.message = message || 'Something was wrong with the request payload you passed in.';
 			break;
 
 		case 401:
 			payload.status.code = 'not-authorised';
-			payload.status.message = message || 'A valid login session was not found. Please log in and try again.';
 			break;
 
 		case 403:
 			payload.status.code = 'forbidden';
-			payload.status.message = message || 'You are not authorised to make this call';
 			break;
 
 		case 404:
 			payload.status.code = 'not-found';
-			payload.status.message = message || 'Invalid API call';
 			break;
 
 		case 426:
 			payload.status.code = 'upgrade-required';
-			payload.status.message = message || 'HTTPS is required for requests to the write api, please re-send your request via HTTPS';
 			break;
 
 		case 429:
 			payload.status.code = 'too-many-requests';
-			payload.status.message = message || 'You have made too many requests, please try again later';
 			break;
 
 		case 500:
 			payload.status.code = 'internal-server-error';
-			payload.status.message = message || payload.status.message;
 			break;
 
 		case 501:
 			payload.status.code = 'not-implemented';
-			payload.status.message = message || 'The route you are trying to call is not implemented yet, please try again tomorrow';
 			break;
 
 		case 503:
 			payload.status.code = 'service-unavailable';
-			payload.status.message = message || 'The route you are trying to call is not currently available due to a server configuration';
 			break;
 	}
 

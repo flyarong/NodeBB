@@ -4,65 +4,27 @@ define('admin/manage/groups', [
 	'categorySelector',
 	'slugify',
 	'api',
-], function (categorySelector, slugify, api) {
-	var	Groups = {};
-
-	var intervalId = 0;
+	'bootbox',
+	'alerts',
+], function (categorySelector, slugify, api, bootbox, alerts) {
+	const Groups = {};
 
 	Groups.init = function () {
-		var	createModal = $('#create-modal');
-		var createGroupName = $('#create-group-name');
-		var createModalGo = $('#create-modal-go');
-		var createModalError = $('#create-modal-error');
+		handleCreate();
 
 		handleSearch();
 
-		createModal.on('keypress', function (e) {
-			if (e.keyCode === 13) {
-				createModalGo.click();
-			}
-		});
-
-		$('#create').on('click', function () {
-			createModal.modal('show');
-			setTimeout(function () {
-				createGroupName.focus();
-			}, 250);
-		});
-
-		createModalGo.on('click', function () {
-			var submitObj = {
-				name: createGroupName.val(),
-				description: $('#create-group-desc').val(),
-				private: $('#create-group-private').is(':checked') ? 1 : 0,
-				hidden: $('#create-group-hidden').is(':checked') ? 1 : 0,
-			};
-
-			api.post('/groups', submitObj).then((response) => {
-				createModalError.addClass('hide');
-				createGroupName.val('');
-				createModal.on('hidden.bs.modal', function () {
-					ajaxify.go('admin/manage/groups/' + response.name);
-				});
-				createModal.modal('hide');
-			}).catch((err) => {
-				if (!utils.hasLanguageKey(err.status.message)) {
-					err.status.message = '[[admin/manage/groups:alerts.create-failure]]';
-				}
-				createModalError.translateHtml(err.status.message).removeClass('hide');
-			});
-		});
 
 		$('.groups-list').on('click', '[data-action]', function () {
-			var el = $(this);
-			var action = el.attr('data-action');
-			var groupName = el.parents('tr[data-groupname]').attr('data-groupname');
+			const el = $(this);
+			const action = el.attr('data-action');
+			const groupName = el.parents('tr[data-groupname]').attr('data-groupname');
 
 			switch (action) {
 				case 'delete':
 					bootbox.confirm('[[admin/manage/groups:alerts.confirm-delete]]', function (confirm) {
 						if (confirm) {
-							api.del(`/groups/${slugify(groupName)}`, {}).then(ajaxify.refresh).catch(app.alertError);
+							api.del(`/groups/${slugify(groupName)}`, {}).then(ajaxify.refresh).catch(alerts.error);
 						}
 					});
 					break;
@@ -74,7 +36,7 @@ define('admin/manage/groups', [
 
 	function enableCategorySelectors() {
 		$('.groups-list [component="category-selector"]').each(function () {
-			var nameEncoded = $(this).parents('[data-name-encoded]').attr('data-name-encoded');
+			const nameEncoded = $(this).parents('[data-name-encoded]').attr('data-name-encoded');
 			categorySelector.init($(this), {
 				onSelect: function (selectedCategory) {
 					ajaxify.go('admin/manage/privileges/' + selectedCategory.cid + '?group=' + nameEncoded);
@@ -84,15 +46,63 @@ define('admin/manage/groups', [
 		});
 	}
 
+	function handleCreate() {
+		$('#create').on('click', function () {
+			app.parseAndTranslate('admin/partials/create_group_modal', {}).then((html) => {
+				html.modal('show');
+
+				html.on('shown.bs.modal', function () {
+					const createModal = $('#create-modal');
+					const createGroupName = $('#create-group-name');
+					const createModalGo = $('#create-modal-go');
+					const createModalError = $('#create-modal-error');
+
+					createGroupName.trigger('focus');
+					createModal.on('keypress', function (e) {
+						if (e.key === 'Enter') {
+							createModalGo.trigger('click');
+						}
+					});
+					html.on('hidden.bs.modal', function () {
+						html.modal('hide');
+						createModal.remove();
+					});
+					createModalGo.on('click', function () {
+						const submitObj = {
+							name: createGroupName.val(),
+							description: $('#create-group-desc').val(),
+							private: $('#create-group-private').is(':checked') ? 1 : 0,
+							hidden: $('#create-group-hidden').is(':checked') ? 1 : 0,
+						};
+
+						api.post('/groups', submitObj).then((response) => {
+							createModalError.addClass('hide');
+							createGroupName.val('');
+							createModal.on('hidden.bs.modal', function () {
+								ajaxify.go('admin/manage/groups/' + response.name);
+							});
+							createModal.modal('hide');
+						}).catch((err) => {
+							if (!utils.hasLanguageKey(err.status.message)) {
+								err.status.message = '[[admin/manage/groups:alerts.create-failure]]';
+							}
+							createModalError.translateHtml(err.status.message).removeClass('hide');
+						});
+					});
+				});
+			});
+		});
+	}
+
 	function handleSearch() {
-		var queryEl = $('#group-search');
+		const queryEl = $('#group-search');
 
 		function doSearch() {
 			if (!queryEl.val()) {
 				return ajaxify.refresh();
 			}
 			$('.pagination').addClass('hide');
-			var groupsEl = $('.groups-list');
+			const groupsEl = $('.groups-list');
 			socket.emit('groups.search', {
 				query: queryEl.val(),
 				options: {
@@ -100,7 +110,7 @@ define('admin/manage/groups', [
 				},
 			}, function (err, groups) {
 				if (err) {
-					return app.alertError(err.message);
+					return alerts.error(err);
 				}
 
 				app.parseAndTranslate('admin/manage/groups', 'groups', {
@@ -114,13 +124,7 @@ define('admin/manage/groups', [
 			});
 		}
 
-		queryEl.on('keyup', function () {
-			if (intervalId) {
-				clearTimeout(intervalId);
-				intervalId = 0;
-			}
-			intervalId = setTimeout(doSearch, 200);
-		});
+		queryEl.on('keyup', utils.debounce(doSearch, 200));
 	}
 
 

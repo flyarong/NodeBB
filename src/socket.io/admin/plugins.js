@@ -1,5 +1,7 @@
 'use strict';
 
+const nconf = require('nconf');
+
 const plugins = require('../../plugins');
 const events = require('../../events');
 const db = require('../../database');
@@ -30,15 +32,18 @@ Plugins.toggleInstall = async function (socket, data) {
 	return pluginData;
 };
 
-Plugins.getActive = function (socket, data, callback) {
-	plugins.getActive(callback);
+Plugins.getActive = async function () {
+	return await plugins.getActive();
 };
 
 Plugins.orderActivePlugins = async function (socket, data) {
+	if (nconf.get('plugins:active')) {
+		throw new Error('[[error:plugins-set-in-configuration]]');
+	}
 	data = data.filter(plugin => plugin && plugin.name);
 	await Promise.all(data.map(plugin => db.sortedSetAdd('plugins:active', plugin.order || 0, plugin.name)));
 };
 
-Plugins.upgrade = function (socket, data, callback) {
-	plugins.upgrade(data.id, data.version, callback);
+Plugins.upgrade = async function (socket, data) {
+	return await plugins.upgrade(data.id, data.version);
 };

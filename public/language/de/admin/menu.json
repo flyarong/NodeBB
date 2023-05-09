@@ -1,9 +1,10 @@
 {
 	"section-dashboard": "Dashboards",
-	"dashboard/overview": "Overview",
-	"dashboard/logins": "Logins",
-	"dashboard/users": "Users",
-	"dashboard/topics": "Topics",
+	"dashboard/overview": "Übersicht",
+	"dashboard/logins": "Anmeldungen",
+	"dashboard/users": "Benutzer",
+	"dashboard/topics": "Themen",
+	"dashboard/searches": "Suchen",
 	"section-general": "Allgemein",
 
 	"section-manage": "Verwalten",
@@ -35,7 +36,7 @@
 	"settings/pagination": "Seitennummerierung",
 	"settings/tags": "Tags",
 	"settings/notifications": "Benachrichtigungen",
-	"settings/api": "API Access",
+	"settings/api": "API-Zugriff",
 	"settings/sounds": "Sounds",
 	"settings/social": "Social",
 	"settings/cookies": "Cookies",
@@ -75,7 +76,7 @@
 	"logout": "Abmelden",
 	"view-forum": "Forum anzeigen",
 
-	"search.placeholder": "Press &quot;/&quot; to search for settings",
+	"search.placeholder": "Nach Einstellungen suchen",
 	"search.no-results": "Keine Ergebnisse...",
 	"search.search-forum": "Suche im Forum nach <strong></strong>",
 	"search.keep-typing": "Gib mehr ein, um die Ergebnisse zu sehen...",

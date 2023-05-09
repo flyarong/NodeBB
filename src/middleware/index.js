@@ -2,12 +2,11 @@
 
 const async = require('async');
 const path = require('path');
-const csrf = require('csurf');
 const validator = require('validator');
 const nconf = require('nconf');
 const toobusy = require('toobusy-js');
-const LRU = require('lru-cache');
 const util = require('util');
+const { csrfSynchronisedProtection } = require('./csrf');
 
 const plugins = require('../plugins');
 const meta = require('../meta');
@@ -15,15 +14,18 @@ const user = require('../user');
 const groups = require('../groups');
 const analytics = require('../analytics');
 const privileges = require('../privileges');
+const cacheCreate = require('../cache/lru');
 const helpers = require('./helpers');
+const api = require('../api');
 
 const controllers = {
 	api: require('../controllers/api'),
 	helpers: require('../controllers/helpers'),
 };
 
-const delayCache = new LRU({
-	maxAge: 1000 * 60,
+const delayCache = cacheCreate({
+	ttl: 1000 * 60,
+	max: 200,
 });
 
 const middleware = module.exports;
@@ -34,17 +36,11 @@ middleware.regexes = {
 	timestampedUpload: /^\d+-.+$/,
 };
 
-const csurfMiddleware = csrf({
-	cookie: nconf.get('url_parsed').protocol === 'https:' ? {
-		secure: true,
-		sameSite: 'Strict',
-		httpOnly: true,
-	} : true,
-});
+const csrfMiddleware = csrfSynchronisedProtection;
 
 middleware.applyCSRF = function (req, res, next) {
 	if (req.uid >= 0) {
-		csurfMiddleware(req, res, next);
+		csrfMiddleware(req, res, next);
 	} else {
 		next();
 	}
@@ -108,15 +104,33 @@ middleware.pluginHooks = helpers.try(async (req, res, next) => {
 });
 
 middleware.validateFiles = function validateFiles(req, res, next) {
-	if (!Array.isArray(req.files.files) || !req.files.files.length) {
+	if (!req.files.files) {
 		return next(new Error(['[[error:invalid-files]]']));
 	}
 
-	next();
+	if (Array.isArray(req.files.files) && req.files.files.length) {
+		return next();
+	}
+
+	if (typeof req.files.files === 'object') {
+		req.files.files = [req.files.files];
+		return next();
+	}
+
+	return next(new Error(['[[error:invalid-files]]']));
 };
 
 middleware.prepareAPI = function prepareAPI(req, res, next) {
 	res.locals.isAPI = true;
+	next();
+};
+
+middleware.logApiUsage = async function logApiUsage(req, res, next) {
+	if (req.headers.hasOwnProperty('authorization')) {
+		const [, token] = req.headers.authorization.split(' ');
+		await api.utils.log(token);
+	}
+
 	next();
 };
 
@@ -156,7 +170,13 @@ async function expose(exposedField, method, field, req, res, next) {
 	if (!req.params.hasOwnProperty(field)) {
 		return next();
 	}
-	res.locals[exposedField] = await method(req.params[field]);
+	const value = await method(String(req.params[field]).toLowerCase());
+	if (!value) {
+		next('route');
+		return;
+	}
+
+	res.locals[exposedField] = value;
 	next();
 }
 
@@ -215,17 +235,18 @@ middleware.buildSkinAsset = helpers.try(async (req, res, next) => {
 	}
 
 	await plugins.prepareForBuild(['client side styles']);
-	const css = await meta.css.buildBundle(target[0], true);
+	const [ltr, rtl] = await meta.css.buildBundle(target[0], true);
 	require('../meta/minifier').killAll();
-	res.status(200).type('text/css').send(css);
+	res.status(200).type('text/css').send(req.originalUrl.includes('-rtl') ? rtl : ltr);
 });
 
-middleware.trimUploadTimestamps = function trimUploadTimestamps(req, res, next) {
-	// Check match
+middleware.addUploadHeaders = function addUploadHeaders(req, res, next) {
+	// Trim uploaded files' timestamps when downloading + force download if html
 	let basename = path.basename(req.path);
+	const extname = path.extname(req.path);
 	if (req.path.startsWith('/uploads/files/') && middleware.regexes.timestampedUpload.test(basename)) {
 		basename = basename.slice(14);
-		res.header('Content-Disposition', `inline; filename="${basename}"`);
+		res.header('Content-Disposition', `${extname.startsWith('.htm') ? 'attachment' : 'inline'}; filename="${basename}"`);
 	}
 
 	next();
@@ -255,5 +276,5 @@ middleware.checkRequired = function (fields, req, res, next) {
 		return next();
 	}
 
-	controllers.helpers.formatApiResponse(400, res, new Error(`Required parameters were missing from this API call: ${missing.join(', ')}`));
+	controllers.helpers.formatApiResponse(400, res, new Error(`[[error:required-parameters-missing, ${missing.join(' ')}]]`));
 };

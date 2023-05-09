@@ -1,8 +1,9 @@
+<!-- IMPORT admin/partials/settings/header.tpl -->
 <div class="row logger">
-	<div class="col-lg-9">
-		<div class="panel panel-default">
-			<div class="panel-heading">[[admin/development/logger:logger-settings]]</div>
-			<div class="panel-body">
+	<div class="col-lg-12">
+		<div class="card">
+			<div class="card-header">[[admin/development/logger:logger-settings]]</div>
+			<div class="card-body">
 				<p>
 					[[admin/development/logger:description]]
 				</p>
@@ -13,7 +14,6 @@
 				<br/>
 
 				<form>
-
 					<label>
 						<input type="checkbox" data-field="loggerStatus"> <strong>[[admin/development/logger:enable-http]]</strong>
 					</label>
@@ -26,27 +26,12 @@
 					<br/>
 					<br/>
 
-					<label>[[admin/development/logger:file-path]]</label>
-					<input class="form-control" type="text" placeholder="[[admin/development/logger:file-path-placeholder]]" data-field="loggerPath" />
+					<label for="loggerPath">[[admin/development/logger:file-path]]</label>
+					<input id="loggerPath" class="form-control" type="text" placeholder="[[admin/development/logger:file-path-placeholder]]" data-field="loggerPath" />
 				</form>
-			</div>
-		</div>
-
-	</div>
-
-	<div class="col-lg-3 acp-sidebar">
-		<div class="panel panel-default">
-			<div class="panel-heading">[[admin/development/logger:control-panel]]</div>
-			<div class="panel-body">
-				<button class="btn btn-primary" id="save">[[admin/development/logger:update-settings]]</button>
 			</div>
 		</div>
 	</div>
 </div>
 
-
-<script>
-	require(['admin/settings'], function(Settings) {
-		Settings.prepare();
-	});
-</script>
+<!-- IMPORT admin/partials/settings/footer.tpl -->

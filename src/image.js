@@ -46,14 +46,31 @@ image.resizeImage = async function (data) {
 		const buffer = await fs.promises.readFile(data.path);
 		const sharpImage = sharp(buffer, {
 			failOnError: true,
+			animated: data.path.endsWith('gif'),
 		});
 		const metadata = await sharpImage.metadata();
 
 		sharpImage.rotate(); // auto-orients based on exif data
 		sharpImage.resize(data.hasOwnProperty('width') ? data.width : null, data.hasOwnProperty('height') ? data.height : null);
 
-		if (data.quality && metadata.format === 'jpeg') {
-			sharpImage.jpeg({ quality: data.quality });
+		if (data.quality) {
+			switch (metadata.format) {
+				case 'jpeg': {
+					sharpImage.jpeg({
+						quality: data.quality,
+						mozjpeg: true,
+					});
+					break;
+				}
+
+				case 'png': {
+					sharpImage.png({
+						quality: data.quality,
+						compressionLevel: 9,
+					});
+					break;
+				}
+			}
 		}
 
 		await sharpImage.toFile(data.target || data.path);
@@ -90,6 +107,12 @@ image.stripEXIF = async function (path) {
 		return;
 	}
 	try {
+		if (plugins.hooks.hasListeners('filter:image.stripEXIF')) {
+			await plugins.hooks.fire('filter:image.stripEXIF', {
+				path: path,
+			});
+			return;
+		}
 		const buffer = await fs.promises.readFile(path);
 		const sharp = requireSharp();
 		await sharp(buffer, { failOnError: true }).rotate().toFile(path);

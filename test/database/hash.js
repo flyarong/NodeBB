@@ -72,13 +72,50 @@ describe('Hash methods', () => {
 			});
 		});
 
-		it('should set multiple keys to different okjects', async () => {
-			const keys = ['bulkKey1', 'bulkKey2'];
-			const data = [{ foo: '1' }, { baz: 'baz' }];
+		it('should set multiple keys to different objects', async () => {
+			await db.setObjectBulk([
+				['bulkKey1', { foo: '1' }],
+				['bulkKey2', { baz: 'baz' }],
+			]);
+			const result = await db.getObjects(['bulkKey1', 'bulkKey2']);
+			assert.deepStrictEqual(result, [{ foo: '1' }, { baz: 'baz' }]);
+		});
 
-			await db.setObjectBulk(keys, data);
+		it('should not error if object is empty', async () => {
+			await db.setObjectBulk([
+				['bulkKey3', { foo: '1' }],
+				['bulkKey4', { }],
+			]);
+			const result = await db.getObjects(['bulkKey3', 'bulkKey4']);
+			assert.deepStrictEqual(result, [{ foo: '1' }, null]);
+		});
+
+		it('should update existing object on second call', async () => {
+			await db.setObjectBulk([['bulkKey3.5', { foo: '1' }]]);
+			await db.setObjectBulk([['bulkKey3.5', { baz: '2' }]]);
+			const result = await db.getObject('bulkKey3.5');
+			assert.deepStrictEqual(result, { foo: '1', baz: '2' });
+		});
+
+		it('should not error if object is empty', async () => {
+			await db.setObjectBulk([['bulkKey5', {}]]);
+			const result = await db.getObjects(['bulkKey5']);
+			assert.deepStrictEqual(result, [null]);
+		});
+
+		it('should not error if object is empty', async () => {
+			const keys = ['bulkKey6', 'bulkKey7'];
+			const data = {};
+
+			await db.setObject(keys, data);
 			const result = await db.getObjects(keys);
-			assert.deepStrictEqual(result, data);
+			assert.deepStrictEqual(result, [null, null]);
+		});
+
+		it('should not error if object is empty', async () => {
+			await db.setObject('emptykey', {});
+			const result = await db.getObject('emptykey');
+			assert.deepStrictEqual(result, null);
 		});
 	});
 
@@ -618,6 +655,23 @@ describe('Hash methods', () => {
 					done();
 				});
 			});
+		});
+	});
+
+	describe('incrObjectFieldByBulk', () => {
+		before(async () => {
+			await db.setObject('testObject16', { age: 100 });
+		});
+
+		it('should increment multiple object fields', async () => {
+			await db.incrObjectFieldByBulk([
+				['testObject16', { age: 5, newField: 10 }],
+				['testObject17', { newField: -5 }],
+			]);
+			const d = await db.getObjects(['testObject16', 'testObject17']);
+			assert.equal(d[0].age, 105);
+			assert.equal(d[0].newField, 10);
+			assert.equal(d[1].newField, -5);
 		});
 	});
 });

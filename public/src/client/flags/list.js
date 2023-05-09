@@ -1,27 +1,57 @@
 'use strict';
 
-define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomplete'], function (components, Chart, categoryFilter, autocomplete) {
-	var Flags = {};
-
-	var selectedCids;
+define('forum/flags/list', [
+	'components', 'Chart', 'categoryFilter',
+	'autocomplete', 'api', 'alerts',
+	'userFilter',
+], function (
+	components, Chart, categoryFilter,
+	autocomplete, api, alerts,
+	userFilter
+) {
+	const Flags = {};
+	const selected = new Map([
+		['cids', []],
+		['assignee', []],
+		['targetUid', []],
+		['reporterId', []],
+	]);
 
 	Flags.init = function () {
 		Flags.enableFilterForm();
 		Flags.enableCheckboxes();
 		Flags.handleBulkActions();
 
-		selectedCids = [];
 		if (ajaxify.data.filters.hasOwnProperty('cid')) {
-			selectedCids = Array.isArray(ajaxify.data.filters.cid) ?
-				ajaxify.data.filters.cid : [ajaxify.data.filters.cid];
+			selected.set('cids', Array.isArray(ajaxify.data.filters.cid) ?
+				ajaxify.data.filters.cid : [ajaxify.data.filters.cid]);
 		}
 
 		categoryFilter.init($('[component="category/dropdown"]'), {
 			privilege: 'moderate',
-			selectedCids: selectedCids,
-			onHidden: function (data) {
-				selectedCids = data.selectedCids;
+			selectedCids: selected.get('cids'),
+			updateButton: function ({ selectedCids: cids }) {
+				selected.set('cids', cids);
+				applyFilters();
 			},
+		});
+
+		['assignee', 'targetUid', 'reporterId'].forEach((filter) => {
+			if (ajaxify.data.filters.hasOwnProperty('filter')) {
+				selected.set(filter, ajaxify.data.selected[filter]);
+			}
+			const filterEl = $(`[component="flags/filter/${filter}"]`);
+			userFilter.init(filterEl, {
+				selectedUsers: selected.get(filter),
+				template: 'partials/flags/filters',
+				selectedBlock: `selected.${filter}`,
+				onSelect: function (_selectedUsers) {
+					selected.set(filter, _selectedUsers);
+				},
+				onHidden: function () {
+					applyFilters();
+				},
+			});
 		});
 
 		components.get('flags/list')
@@ -30,7 +60,7 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 					return;
 				}
 
-				var flagId = this.getAttribute('data-flag-id');
+				const flagId = this.getAttribute('data-flag-id');
 				ajaxify.go('flags/' + flagId);
 			});
 
@@ -45,43 +75,85 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 
 	Flags.enableFilterForm = function () {
 		const $filtersEl = components.get('flags/filters');
+		if ($filtersEl && $filtersEl.get(0).nodeName !== 'FORM') {
+			// Harmony; update hidden form and submit on change
+			const filtersEl = $filtersEl.get(0);
+			const formEl = filtersEl.querySelector('form');
 
-		// Parse ajaxify data to set form values to reflect current filters
-		for (const filter in ajaxify.data.filters) {
-			if (ajaxify.data.filters.hasOwnProperty(filter)) {
-				$filtersEl.find('[name="' + filter + '"]').val(ajaxify.data.filters[filter]);
+			filtersEl.addEventListener('click', (e) => {
+				const subselector = e.target.closest('[data-value]');
+				if (!subselector) {
+					return;
+				}
+
+				const name = subselector.getAttribute('data-name');
+				const value = subselector.getAttribute('data-value');
+
+				formEl[name].value = value;
+
+				applyFilters();
+			});
+		} else {
+			// Persona; parse ajaxify data to set form values to reflect current filters
+			for (const filter in ajaxify.data.filters) {
+				if (ajaxify.data.filters.hasOwnProperty(filter)) {
+					$filtersEl.find('[name="' + filter + '"]').val(ajaxify.data.filters[filter]);
+				}
 			}
-		}
-		$filtersEl.find('[name="sort"]').val(ajaxify.data.sort);
+			$filtersEl.find('[name="sort"]').val(ajaxify.data.sort);
 
-		document.getElementById('apply-filters').addEventListener('click', function () {
-			const payload = $filtersEl.serializeArray();
-			// cid is special comes from categoryFilter module
-			selectedCids.forEach(function (cid) {
-				payload.push({ name: 'cid', value: cid });
+			document.getElementById('apply-filters').addEventListener('click', function () {
+				applyFilters();
 			});
 
-			ajaxify.go('flags?' + (payload.length ? $.param(payload) : 'reset=1'));
-		});
-
-		$filtersEl.find('button[data-target="#more-filters"]').click((ev) => {
-			const textVariant = ev.target.getAttribute('data-text-variant');
-			if (!textVariant) {
-				return;
-			}
-			ev.target.setAttribute('data-text-variant', ev.target.textContent);
-			ev.target.firstChild.textContent = textVariant;
-		});
+			$filtersEl.find('button[data-target="#more-filters"]').click((ev) => {
+				const textVariant = ev.target.getAttribute('data-text-variant');
+				if (!textVariant) {
+					return;
+				}
+				ev.target.setAttribute('data-text-variant', ev.target.textContent);
+				ev.target.firstChild.textContent = textVariant;
+			});
+		}
 	};
 
+	function applyFilters() {
+		let formEl = components.get('flags/filters').get(0);
+		if (!formEl) {
+			return;
+		}
+		if (formEl.nodeName !== 'FORM') {
+			formEl = formEl.querySelector('form');
+		}
+
+		const payload = new FormData(formEl);
+
+		// cid is special comes from categoryFilter module
+		selected.get('cids').forEach(function (cid) {
+			payload.append('cid', cid);
+		});
+
+		// these three fields are special; comes from userFilter module
+		['assignee', 'targetUid', 'reporterId'].forEach((filter) => {
+			selected.get(filter).forEach(({ uid }) => {
+				payload.append(filter, uid);
+			});
+		});
+
+		const length = Array.from(payload.values()).filter(Boolean);
+		const qs = new URLSearchParams(payload).toString();
+
+		ajaxify.go('flags?' + (length ? qs : 'reset=1'));
+	}
+
 	Flags.enableCheckboxes = function () {
-		var flagsList = document.querySelector('[component="flags/list"]');
-		var checkboxes = flagsList.querySelectorAll('[data-flag-id] input[type="checkbox"]');
-		var bulkEl = document.querySelector('[component="flags/bulk-actions"] button');
-		var lastClicked;
+		const flagsList = document.querySelector('[component="flags/list"]');
+		const checkboxes = flagsList.querySelectorAll('[data-flag-id] input[type="checkbox"]');
+		const bulkEl = document.querySelector('[component="flags/bulk-actions"] button');
+		let lastClicked;
 
 		document.querySelector('[data-action="toggle-all"]').addEventListener('click', function () {
-			var state = this.checked;
+			const state = this.checked;
 
 			checkboxes.forEach(function (el) {
 				el.checked = state;
@@ -90,15 +162,15 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 		});
 
 		flagsList.addEventListener('click', function (e) {
-			var subselector = e.target.closest('input[type="checkbox"]');
+			const subselector = e.target.closest('input[type="checkbox"]');
 			if (subselector) {
 				// Stop checkbox clicks from going into the flag details
 				e.stopImmediatePropagation();
 
 				if (lastClicked && e.shiftKey && lastClicked !== subselector) {
 					// Select all the checkboxes in between
-					var state = subselector.checked;
-					var started = false;
+					const state = subselector.checked;
+					let started = false;
 
 					checkboxes.forEach(function (el) {
 						if ([subselector, lastClicked].some(function (ref) {
@@ -130,65 +202,34 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 
 	Flags.handleBulkActions = function () {
 		document.querySelector('[component="flags/bulk-actions"]').addEventListener('click', function (e) {
-			var subselector = e.target.closest('[data-action]');
+			const subselector = e.target.closest('[data-action]');
 			if (subselector) {
-				var action = subselector.getAttribute('data-action');
-				var flagIds = Flags.getSelected();
-				var promises = [];
-
-				// TODO: this can be better done with flagIds.map to return promises
-				flagIds.forEach(function (flagId) {
-					promises.push(new Promise(function (resolve, reject) {
-						var handler = function (err) {
-							if (err) {
-								reject(err);
-							}
-
-							resolve(arguments[1]);
-						};
-
-						switch (action) {
-							case 'bulk-assign':
-								socket.emit('flags.update', {
-									flagId: flagId,
-									data: [
-										{
-											name: 'assignee',
-											value: app.user.uid,
-										},
-									],
-								}, handler);
-								break;
-
-							case 'bulk-mark-resolved':
-								socket.emit('flags.update', {
-									flagId: flagId,
-									data: [
-										{
-											name: 'state',
-											value: 'resolved',
-										},
-									],
-								}, handler);
-								break;
-						}
-					}));
+				const action = subselector.getAttribute('data-action');
+				const flagIds = Flags.getSelected();
+				const promises = flagIds.map((flagId) => {
+					const data = {};
+					if (action === 'bulk-assign') {
+						data.assignee = app.user.uid;
+					} else if (action === 'bulk-mark-resolved') {
+						data.state = 'resolved';
+					}
+					return api.put(`/flags/${flagId}`, data);
 				});
 
 				Promise.allSettled(promises).then(function (results) {
-					var fulfilled = results.filter(function (res) {
+					const fulfilled = results.filter(function (res) {
 						return res.status === 'fulfilled';
 					}).length;
-					var errors = results.filter(function (res) {
+					const errors = results.filter(function (res) {
 						return res.status === 'rejected';
 					});
 					if (fulfilled) {
-						app.alertSuccess('[[flags:bulk-success, ' + fulfilled + ']]');
+						alerts.success('[[flags:bulk-success, ' + fulfilled + ']]');
 						ajaxify.refresh();
 					}
 
 					errors.forEach(function (res) {
-						app.alertError(res.reason);
+						alerts.error(res.reason);
 					});
 				});
 			}
@@ -196,8 +237,8 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 	};
 
 	Flags.getSelected = function () {
-		var checkboxes = document.querySelectorAll('[component="flags/list"] [data-flag-id] input[type="checkbox"]');
-		var payload = [];
+		const checkboxes = document.querySelectorAll('[component="flags/list"] [data-flag-id] input[type="checkbox"]');
+		const payload = [];
 		checkboxes.forEach(function (el) {
 			if (el.checked) {
 				payload.push(el.closest('[data-flag-id]').getAttribute('data-flag-id'));
@@ -208,15 +249,15 @@ define('forum/flags/list', ['components', 'Chart', 'categoryFilter', 'autocomple
 	};
 
 	Flags.handleGraphs = function () {
-		var dailyCanvas = document.getElementById('flags:daily');
-		var dailyLabels = utils.getDaysArray().map(function (text, idx) {
+		const dailyCanvas = document.getElementById('flags:daily');
+		const dailyLabels = utils.getDaysArray().map(function (text, idx) {
 			return idx % 3 ? '' : text;
 		});
 
 		if (utils.isMobile()) {
 			Chart.defaults.global.tooltips.enabled = false;
 		}
-		var data = {
+		const data = {
 			'flags:daily': {
 				labels: dailyLabels,
 				datasets: [

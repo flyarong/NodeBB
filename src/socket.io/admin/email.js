@@ -1,5 +1,6 @@
 'use strict';
 
+const meta = require('../../meta');
 const userDigest = require('../../user/digest');
 const userEmail = require('../../user/email');
 const notifications = require('../../notifications');
@@ -17,7 +18,7 @@ Email.test = async function (socket, data) {
 	switch (data.template) {
 		case 'digest':
 			await userDigest.execute({
-				interval: 'alltime',
+				interval: 'month',
 				subscribers: [socket.uid],
 			});
 			break;
@@ -31,9 +32,12 @@ Email.test = async function (socket, data) {
 			await emailer.send(data.template, socket.uid, payload);
 			break;
 
+		case 'verify-email':
 		case 'welcome':
 			await userEmail.sendValidationEmail(socket.uid, {
 				force: 1,
+				template: data.template,
+				subject: data.template === 'welcome' ? `[[email:welcome-to, ${meta.config.title || meta.config.browserTitle || 'NodeBB'}]]` : undefined,
 			});
 			break;
 

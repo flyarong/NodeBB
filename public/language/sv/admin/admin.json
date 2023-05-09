@@ -3,5 +3,7 @@
 	"alert.confirm-restart": "Är du säker på att du vill starta om NodeBB?",
 
 	"acp-title": "%1 | NodeBB Admin Kontrollpanel",
-	"settings-header-contents": "Innehåll"
+	"settings-header-contents": "Innehåll",
+	"changes-not-saved": "Ändringar Sparades Ej",
+	"changes-not-saved-message": "NodeBB kunde inte spara dina ändringar. (%1)"
 }

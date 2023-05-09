@@ -2,7 +2,10 @@
 
 define('accounts/picture', [
 	'pictureCropper',
-], (pictureCropper) => {
+	'api',
+	'bootbox',
+	'alerts',
+], (pictureCropper, api, bootbox, alerts) => {
 	const Picture = {};
 
 	Picture.openChangeModal = () => {
@@ -10,15 +13,15 @@ define('accounts/picture', [
 			uid: ajaxify.data.uid,
 		}, function (err, pictures) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
 			// boolean to signify whether an uploaded picture is present in the pictures list
-			var uploaded = pictures.reduce(function (memo, cur) {
+			const uploaded = pictures.reduce(function (memo, cur) {
 				return memo || cur.type === 'uploaded';
 			}, false);
 
-			app.parseAndTranslate('partials/modals/change_picture_modal', {
+			app.parseAndTranslate('modals/change-picture', {
 				pictures: pictures,
 				uploaded: uploaded,
 				icon: { text: ajaxify.data['icon:text'], bgColor: ajaxify.data['icon:bgColor'] },
@@ -33,11 +36,12 @@ define('accounts/picture', [
 					'icon:bgColor': ajaxify.data['icon:bgColor'],
 				},
 			}, function (html) {
-				var modal = bootbox.dialog({
+				const modal = bootbox.dialog({
 					className: 'picture-switcher',
 					title: '[[user:change_picture]]',
 					message: html,
 					show: true,
+					size: 'large',
 					buttons: {
 						close: {
 							label: '[[global:close]]',
@@ -58,7 +62,7 @@ define('accounts/picture', [
 				});
 				modal.on('change', 'input[type="radio"][name="icon:bgColor"]', (e) => {
 					const value = e.target.value;
-					modal.find('.user-icon').css('background-color', value);
+					modal.find('[component="avatar/icon"]').css('background-color', value);
 				});
 
 				handleImageUpload(modal);
@@ -66,7 +70,7 @@ define('accounts/picture', [
 				function updateImages() {
 					// Check to see which one is the active picture
 					if (!ajaxify.data.picture) {
-						modal.find('.list-group-item .user-icon').parents('.list-group-item').addClass('active');
+						modal.find('[data-type="default"]').addClass('active');
 					} else {
 						modal.find('.list-group-item img').each(function () {
 							if (this.getAttribute('src') === ajaxify.data.picture) {
@@ -86,17 +90,13 @@ define('accounts/picture', [
 				}
 
 				function saveSelection() {
-					var type = modal.find('.list-group-item.active').attr('data-type');
+					const type = modal.find('.list-group-item.active').attr('data-type');
 					const iconBgColor = document.querySelector('.modal.picture-switcher input[type="radio"]:checked').value || 'transparent';
 
-					changeUserPicture(type, iconBgColor, function (err) {
-						if (err) {
-							return app.alertError(err.message);
-						}
-
+					changeUserPicture(type, iconBgColor).then(() => {
 						Picture.updateHeader(type === 'default' ? '' : modal.find('.list-group-item.active img').attr('src'), iconBgColor);
 						ajaxify.refresh();
-					});
+					}).catch(alerts.error);
 				}
 
 				function onCloseModal() {
@@ -113,15 +113,26 @@ define('accounts/picture', [
 		if (!picture && ajaxify.data.defaultAvatar) {
 			picture = ajaxify.data.defaultAvatar;
 		}
-		$('#header [component="avatar/picture"]')[picture ? 'show' : 'hide']();
-		$('#header [component="avatar/icon"]')[!picture ? 'show' : 'hide']();
+		const headerPictureEl = $(`[component="header/avatar"] [component="avatar/picture"]`);
+		const headerIconEl = $(`[component="header/avatar"] [component="avatar/icon"]`);
+
 		if (picture) {
-			$('#header [component="avatar/picture"]').attr('src', picture);
+			if (!headerPictureEl.length && headerIconEl.length) {
+				const img = $('<img/>');
+				$(headerIconEl[0].attributes).each(function () {
+					img.attr(this.nodeName, this.nodeValue);
+				});
+				img.attr('component', 'avatar/picture')
+					.attr('src', picture)
+					.insertBefore(headerIconEl);
+			}
+		} else {
+			headerPictureEl.remove();
 		}
 
 		if (iconBgColor) {
-			document.querySelectorAll('[component="navbar"] [component="avatar/icon"]').forEach((el) => {
-				el.style['background-color'] = iconBgColor;
+			headerIconEl.css({
+				'background-color': iconBgColor,
 			});
 		}
 	};
@@ -172,11 +183,11 @@ define('accounts/picture', [
 
 		modal.find('[data-action="upload-url"]').on('click', function () {
 			modal.modal('hide');
-			app.parseAndTranslate('partials/modals/upload_picture_from_url_modal', {}, function (uploadModal) {
+			app.parseAndTranslate('modals/upload-picture-from-url', {}, function (uploadModal) {
 				uploadModal.modal('show');
 
 				uploadModal.find('.upload-btn').on('click', function () {
-					var url = uploadModal.find('#uploadFromUrl').val();
+					const url = uploadModal.find('#uploadFromUrl').val();
 					if (!url) {
 						return false;
 					}
@@ -205,19 +216,15 @@ define('accounts/picture', [
 			}, function (err) {
 				modal.modal('hide');
 				if (err) {
-					return app.alertError(err.message);
+					return alerts.error(err);
 				}
 				onRemoveComplete();
 			});
 		});
 	}
 
-	function changeUserPicture(type, bgColor, callback) {
-		socket.emit('user.changePicture', {
-			type,
-			bgColor,
-			uid: ajaxify.data.theirid,
-		}, callback);
+	function changeUserPicture(type, bgColor) {
+		return api.put(`/users/${ajaxify.data.theirid}/picture`, { type, bgColor });
 	}
 
 	return Picture;

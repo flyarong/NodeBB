@@ -22,16 +22,17 @@ module.exports = function (Categories) {
 			await topics.purgePostsAndTopic(tid, uid);
 		});
 		const categoryData = await Categories.getCategoryData(cid);
-		await purgeCategory(categoryData);
+		await purgeCategory(cid, categoryData);
 		plugins.hooks.fire('action:category.delete', { cid: cid, uid: uid, category: categoryData });
 	};
 
-	async function purgeCategory(categoryData) {
-		const { cid } = categoryData;
-		await db.sortedSetRemoveBulk([
-			['categories:cid', cid],
-			['categories:name', `${categoryData.name.substr(0, 200).toLowerCase()}:${cid}`],
-		]);
+	async function purgeCategory(cid, categoryData) {
+		const bulkRemove = [['categories:cid', cid]];
+		if (categoryData && categoryData.name) {
+			bulkRemove.push(['categories:name', `${categoryData.name.slice(0, 200).toLowerCase()}:${cid}`]);
+		}
+		await db.sortedSetRemoveBulk(bulkRemove);
+
 		await removeFromParent(cid);
 		await deleteTags(cid);
 		await db.deleteAll([
@@ -39,6 +40,7 @@ module.exports = function (Categories) {
 			`cid:${cid}:tids:pinned`,
 			`cid:${cid}:tids:posts`,
 			`cid:${cid}:tids:votes`,
+			`cid:${cid}:tids:views`,
 			`cid:${cid}:tids:lastposttime`,
 			`cid:${cid}:recent_tids`,
 			`cid:${cid}:pids`,
@@ -48,7 +50,8 @@ module.exports = function (Categories) {
 			`cid:${cid}:tag:whitelist`,
 			`category:${cid}`,
 		]);
-		await groups.destroy(privileges.categories.privilegeList.map(privilege => `cid:${cid}:privileges:${privilege}`));
+		const privilegeList = await privileges.categories.getPrivilegeList();
+		await groups.destroy(privilegeList.map(privilege => `cid:${cid}:privileges:${privilege}`));
 	}
 
 	async function removeFromParent(cid) {

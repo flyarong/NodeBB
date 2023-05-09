@@ -5,7 +5,6 @@ const winston = require('winston');
 
 const sleep = util.promisify(setTimeout);
 
-const api = require('../api');
 const user = require('../user');
 const topics = require('../topics');
 const messaging = require('../messaging');
@@ -17,51 +16,13 @@ const db = require('../database');
 const userController = require('../controllers/user');
 const privileges = require('../privileges');
 const utils = require('../utils');
-const sockets = require('.');
 
 const SocketUser = module.exports;
 
 require('./user/profile')(SocketUser);
-require('./user/search')(SocketUser);
 require('./user/status')(SocketUser);
 require('./user/picture')(SocketUser);
-require('./user/ban')(SocketUser);
 require('./user/registration')(SocketUser);
-
-SocketUser.exists = async function (socket, data) {
-	sockets.warnDeprecated(socket, 'HEAD /api/v3/users/bySlug/:userslug *AND* HEAD /api/v3/groups/:slug');
-
-	if (!data || !data.username) {
-		throw new Error('[[error:invalid-data]]');
-	}
-	return await meta.userOrGroupExists(data.username);
-};
-
-SocketUser.deleteAccount = async function (socket, data) {
-	sockets.warnDeprecated(socket, 'DELETE /api/v3/users/:uid/account');
-	data.uid = socket.uid;
-	await api.users.deleteAccount(socket, data);
-};
-
-SocketUser.emailExists = async function (socket, data) {
-	if (!data || !data.email) {
-		throw new Error('[[error:invalid-data]]');
-	}
-	return await user.email.exists(data.email);
-};
-
-SocketUser.emailConfirm = async function (socket) {
-	if (!socket.uid) {
-		throw new Error('[[error:no-privileges]]');
-	}
-
-	if (!meta.config.requireEmailConfirmation) {
-		throw new Error('[[error:email-confirmations-are-disabled]]');
-	}
-
-	return await user.email.sendValidationEmail(socket.uid);
-};
-
 
 // Password Reset
 SocketUser.reset = {};
@@ -86,10 +47,11 @@ SocketUser.reset.send = async function (socket, email) {
 	try {
 		await user.reset.send(email);
 		await logEvent('[[success:success]]');
-		await sleep(2500);
+		await sleep(2500 + ((Math.random() * 500) - 250));
 	} catch (err) {
 		await logEvent(err.message);
-		const internalErrors = ['[[error:invalid-email]]', '[[error:reset-rate-limited]]'];
+		await sleep(2500 + ((Math.random() * 500) - 250));
+		const internalErrors = ['[[error:invalid-email]]'];
 		if (!internalErrors.includes(err.message)) {
 			throw err;
 		}
@@ -128,40 +90,6 @@ SocketUser.isFollowing = async function (socket, data) {
 	}
 
 	return await user.isFollowing(socket.uid, data.uid);
-};
-
-SocketUser.follow = async function (socket, data) {
-	sockets.warnDeprecated(socket, 'POST /api/v3/users/follow');
-	await api.users.follow(socket, data);
-};
-
-SocketUser.unfollow = async function (socket, data) {
-	sockets.warnDeprecated(socket, 'DELETE /api/v3/users/unfollow');
-	await api.users.unfollow(socket, data);
-};
-
-SocketUser.saveSettings = async function (socket, data) {
-	sockets.warnDeprecated(socket, 'PUT /api/v3/users/:uid/settings');
-	const settings = await api.users.updateSettings(socket, data);
-	return settings;
-};
-
-SocketUser.setTopicSort = async function (socket, sort) {
-	sockets.warnDeprecated(socket, 'PUT /api/v3/users/:uid/setting/topicPostSort');
-	await api.users.updateSetting(socket, {
-		uid: socket.uid,
-		setting: 'topicPostSort',
-		value: sort,
-	});
-};
-
-SocketUser.setCategorySort = async function (socket, sort) {
-	sockets.warnDeprecated(socket, 'PUT /api/v3/users/:uid/setting/categoryTopicSort');
-	await api.users.updateSetting(socket, {
-		uid: socket.uid,
-		setting: 'categoryTopicSort',
-		value: sort,
-	});
 };
 
 SocketUser.getUnreadCount = async function (socket) {

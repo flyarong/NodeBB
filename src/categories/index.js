@@ -5,10 +5,10 @@ const _ = require('lodash');
 
 const db = require('../database');
 const user = require('../user');
-const groups = require('../groups');
 const plugins = require('../plugins');
 const privileges = require('../privileges');
 const cache = require('../cache');
+const meta = require('../meta');
 
 const Categories = module.exports;
 
@@ -98,31 +98,7 @@ Categories.getModerators = async function (cid) {
 };
 
 Categories.getModeratorUids = async function (cids) {
-	const groupNames = cids.reduce((memo, cid) => {
-		memo.push(`cid:${cid}:privileges:moderate`);
-		memo.push(`cid:${cid}:privileges:groups:moderate`);
-		return memo;
-	}, []);
-
-	const memberSets = await groups.getMembersOfGroups(groupNames);
-	// Every other set is actually a list of user groups, not uids, so convert those to members
-	const sets = memberSets.reduce((memo, set, idx) => {
-		if (idx % 2) {
-			memo.groupNames.push(set);
-		} else {
-			memo.uids.push(set);
-		}
-
-		return memo;
-	}, { groupNames: [], uids: [] });
-
-	const uniqGroups = _.uniq(_.flatten(sets.groupNames));
-	const groupUids = await groups.getMembersOfGroups(uniqGroups);
-	const map = _.zipObject(uniqGroups, groupUids);
-	const moderatorUids = cids.map(
-		(cid, index) => _.uniq(sets.uids[index].concat(_.flatten(sets.groupNames[index].map(g => map[g]))))
-	);
-	return moderatorUids;
+	return await privileges.categories.getUidsWithPrivilege(cids, 'moderate');
 };
 
 Categories.getCategories = async function (cids, uid) {
@@ -173,6 +149,15 @@ Categories.getTagWhitelist = async function (cids) {
 		cache.set(`cid:${cid}:tag:whitelist`, data[index]);
 	});
 	return cids.map(cid => cachedData[cid]);
+};
+
+// remove system tags from tag whitelist for non privileged user
+Categories.filterTagWhitelist = function (tagWhitelist, isAdminOrMod) {
+	const systemTags = (meta.config.systemTags || '').split(',');
+	if (!isAdminOrMod && systemTags.length) {
+		return tagWhitelist.filter(tag => !systemTags.includes(tag));
+	}
+	return tagWhitelist;
 };
 
 function calculateTopicPostCount(category) {
@@ -382,7 +367,7 @@ Categories.buildForSelectCategories = function (categories, fields, parentCid) {
 	rootCategories.forEach(category => recursive(category, categoriesData, '', 0));
 
 	const pickFields = [
-		'cid', 'name', 'level', 'icon',	'parentCid',
+		'cid', 'name', 'level', 'icon', 'parentCid',
 		'color', 'bgColor', 'backgroundImage', 'imageClass',
 	];
 	fields = fields || [];

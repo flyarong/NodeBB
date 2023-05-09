@@ -1,26 +1,19 @@
 'use strict';
 
 
-define('forum/notifications', ['components'], function (components) {
-	var Notifications = {};
+define('forum/notifications', ['components', 'notifications'], function (components, notifications) {
+	const Notifications = {};
 
 	Notifications.init = function () {
-		var listEl = $('.notifications-list');
+		const listEl = $('.notifications-list');
 		listEl.on('click', '[component="notifications/item/link"]', function () {
-			var nid = $(this).parents('[data-nid]').attr('data-nid');
-			socket.emit('notifications.markRead', nid, function (err) {
-				if (err) {
-					return app.alertError(err);
-				}
-			});
+			const nid = $(this).parents('[data-nid]').attr('data-nid');
+			Notifications.markNotification(nid, true);
 		});
+		notifications.handleUnreadButton(listEl);
 
 		components.get('notifications/mark_all').on('click', function () {
-			socket.emit('notifications.markAllRead', function (err) {
-				if (err) {
-					return app.alertError(err.message);
-				}
-
+			notifications.markAllRead(function () {
 				components.get('notifications/item').removeClass('unread');
 			});
 		});

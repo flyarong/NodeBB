@@ -2,40 +2,57 @@
 
 
 define('forum/topic/votes', [
-	'components', 'translator', 'benchpress', 'api',
-], function (components, translator, Benchpress, api) {
-	var Votes = {};
+	'components', 'translator', 'api', 'hooks', 'bootbox', 'alerts', 'bootstrap',
+], function (components, translator, api, hooks, bootbox, alerts, bootstrap) {
+	const Votes = {};
+	let _showTooltip = {};
 
 	Votes.addVoteHandler = function () {
+		_showTooltip = {};
 		components.get('topic').on('mouseenter', '[data-pid] [component="post/vote-count"]', loadDataAndCreateTooltip);
+		components.get('topic').on('mouseleave', '[data-pid] [component="post/vote-count"]', destroyTooltip);
 	};
 
-	function loadDataAndCreateTooltip(e) {
-		e.stopPropagation();
+	function destroyTooltip() {
+		const $this = $(this);
+		const pid = $this.parents('[data-pid]').attr('data-pid');
+		const tooltip = bootstrap.Tooltip.getInstance(this);
+		if (tooltip) {
+			tooltip.dispose();
+			$this.attr('title', '');
+		}
+		_showTooltip[pid] = false;
+	}
 
-		var $this = $(this);
-		var el = $this.parent();
-		el.find('.tooltip').css('display', 'none');
-		var pid = el.parents('[data-pid]').attr('data-pid');
+	function loadDataAndCreateTooltip() {
+		const $this = $(this);
+		const el = $this.parent();
+		const pid = el.parents('[data-pid]').attr('data-pid');
+		_showTooltip[pid] = true;
+		const tooltip = bootstrap.Tooltip.getInstance(this);
+		if (tooltip) {
+			tooltip.dispose();
+			$this.attr('title', '');
+		}
 
 		socket.emit('posts.getUpvoters', [pid], function (err, data) {
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
-
-			if (data.length) {
+			if (_showTooltip[pid] && data.length) {
 				createTooltip($this, data[0]);
 			}
 		});
-		return false;
 	}
 
 	function createTooltip(el, data) {
 		function doCreateTooltip(title) {
-			el.attr('title', title).tooltip('fixTitle').tooltip('show');
-			el.parent().find('.tooltip').css('display', '');
+			el.attr('title', title);
+			(new bootstrap.Tooltip(el, {
+				container: '#content',
+			})).show();
 		}
-		var usernames = data.usernames
+		let usernames = data.usernames
 			.filter(name => name !== '[[global:former_user]]');
 		if (!usernames.length) {
 			return;
@@ -54,23 +71,22 @@ define('forum/topic/votes', [
 
 
 	Votes.toggleVote = function (button, className, delta) {
-		var post = button.closest('[data-pid]');
-		var currentState = post.find(className).length;
+		const post = button.closest('[data-pid]');
+		const currentState = post.find(className).length;
 
 		const method = currentState ? 'del' : 'put';
-		var pid = post.attr('data-pid');
+		const pid = post.attr('data-pid');
 		api[method](`/posts/${pid}/vote`, {
 			delta: delta,
 		}, function (err) {
 			if (err) {
-				// TODO: err.message is currently hardcoded in helpers/api.js
-				if (err.message === 'A valid login session was not found. Please log in and try again.') {
+				if (!app.user.uid) {
 					ajaxify.go('login');
 					return;
 				}
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
-			$(window).trigger('action:post.toggleVote', {
+			hooks.fire('action:post.toggleVote', {
 				pid: pid,
 				delta: delta,
 				unvote: method === 'del',
@@ -88,11 +104,11 @@ define('forum/topic/votes', [
 				}
 
 				// Only show error if it's an unexpected error.
-				return app.alertError(err.message);
+				return alerts.error(err);
 			}
 
-			app.parseAndTranslate('partials/modals/votes_modal', data, function (html) {
-				var dialog = bootbox.dialog({
+			app.parseAndTranslate('modals/votes', data, function (html) {
+				const dialog = bootbox.dialog({
 					title: '[[global:voters]]',
 					message: html,
 					className: 'vote-modal',

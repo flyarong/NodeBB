@@ -1,8 +1,6 @@
 
 'use strict';
 
-const async = require('async');
-
 const db = require('../database');
 const posts = require('../posts');
 const categories = require('../categories');
@@ -41,21 +39,28 @@ module.exports = function (Topics) {
 		}
 
 		const scheduled = postData.timestamp > Date.now();
-		const tid = await Topics.create({
+		const params = {
 			uid: postData.uid,
 			title: title,
 			cid: cid,
 			timestamp: scheduled && postData.timestamp,
+		};
+		const result = await plugins.hooks.fire('filter:topic.fork', {
+			params: params,
+			tid: postData.tid,
 		});
+
+		const tid = await Topics.create(result.params);
 		await Topics.updateTopicBookmarks(fromTid, pids);
 
-		await async.eachSeries(pids, async (pid) => {
+		for (const pid of pids) {
+			/* eslint-disable no-await-in-loop */
 			const canEdit = await privileges.posts.canEdit(pid, uid);
 			if (!canEdit.flag) {
 				throw new Error(canEdit.message);
 			}
 			await Topics.movePostToTopic(uid, pid, tid, scheduled);
-		});
+		}
 
 		await Topics.updateLastPostTime(tid, scheduled ? (postData.timestamp + 1) : Date.now());
 
@@ -65,6 +70,7 @@ module.exports = function (Topics) {
 				downvotes: postData.downvotes,
 			}),
 			db.sortedSetsAdd(['topics:votes', `cid:${cid}:tids:votes`], postData.votes, tid),
+			Topics.events.log(fromTid, { type: 'fork', uid, href: `/topic/${tid}` }),
 		]);
 
 		plugins.hooks.fire('action:topic.fork', { tid: tid, fromTid: fromTid, uid: uid });
@@ -140,7 +146,7 @@ module.exports = function (Topics) {
 			db.sortedSetAdd(`cid:${topicData[1].cid}:pids`, postData.timestamp, postData.pid),
 			db.sortedSetAdd(`cid:${topicData[1].cid}:uid:${postData.uid}:pids`, postData.timestamp, postData.pid),
 		];
-		if (postData.votes > 0) {
+		if (postData.votes > 0 || postData.votes < 0) {
 			tasks.push(db.sortedSetAdd(`cid:${topicData[1].cid}:uid:${postData.uid}:pids:votes`, postData.votes, postData.pid));
 		}
 

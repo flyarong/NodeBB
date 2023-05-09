@@ -1,40 +1,44 @@
 'use strict';
 
 
-define('forum/topic/replies', ['navigator', 'components', 'forum/topic/posts'], function (navigator, components, posts) {
-	var Replies = {};
+define('forum/topic/replies', ['forum/topic/posts', 'hooks', 'alerts'], function (posts, hooks, alerts) {
+	const Replies = {};
 
 	Replies.init = function (button) {
-		var post = button.closest('[data-pid]');
-		var pid = post.data('pid');
-		var open = button.find('[component="post/replies/open"]');
-		var loading = button.find('[component="post/replies/loading"]');
-		var close = button.find('[component="post/replies/close"]');
+		const post = button.closest('[data-pid]');
+		const pid = post.data('pid');
+		const open = button.find('[component="post/replies/open"]');
+		const loading = button.find('[component="post/replies/loading"]');
+		const close = button.find('[component="post/replies/close"]');
 
 		if (open.is(':not(.hidden)') && loading.is('.hidden')) {
 			open.addClass('hidden');
 			loading.removeClass('hidden');
 
-			socket.emit('posts.getReplies', pid, function (err, data) {
+			socket.emit('posts.getReplies', pid, function (err, postData) {
 				loading.addClass('hidden');
 				if (err) {
 					open.removeClass('hidden');
-					return app.alertError(err.message);
+					return alerts.error(err);
 				}
 
 				close.removeClass('hidden');
-
-				posts.modifyPostsByPrivileges(data);
-				var tplData = {
-					posts: data,
+				postData.forEach((post, index) => {
+					if (post) {
+						post.index = index;
+					}
+				});
+				posts.modifyPostsByPrivileges(postData);
+				const tplData = {
+					posts: postData,
 					privileges: ajaxify.data.privileges,
 					'downvote:disabled': ajaxify.data['downvote:disabled'],
 					'reputation:disabled': ajaxify.data['reputation:disabled'],
 					loggedIn: !!app.user.uid,
 					hideReplies: config.hasOwnProperty('showNestedReplies') ? !config.showNestedReplies : true,
 				};
-				app.parseAndTranslate('topic', 'posts', tplData, function (html) {
-					var repliesEl = $('<div>', { component: 'post/replies' }).html(html).hide();
+				app.parseAndTranslate('topic', 'posts', tplData, async function (html) {
+					const repliesEl = $('<ul>', { component: 'post/replies', class: 'list-unstyled' }).html(html).hide();
 					if (button.attr('data-target-component')) {
 						post.find('[component="' + button.attr('data-target-component') + '"]').html(repliesEl);
 					} else {
@@ -42,8 +46,8 @@ define('forum/topic/replies', ['navigator', 'components', 'forum/topic/posts'], 
 					}
 
 					repliesEl.slideDown('fast');
-					posts.onNewPostsAddedToDom(html);
-					$(window).trigger('action:posts.loaded', { posts: data });
+					await posts.onNewPostsAddedToDom(html);
+					hooks.fire('action:posts.loaded', { posts: postData });
 				});
 			});
 		} else if (close.is(':not(.hidden)')) {
@@ -57,21 +61,21 @@ define('forum/topic/replies', ['navigator', 'components', 'forum/topic/posts'], 
 	};
 
 	Replies.onNewPost = function (data) {
-		var post = data.posts[0];
+		const post = data.posts[0];
 		if (!post) {
 			return;
 		}
 		incrementCount(post, 1);
 		data.hideReplies = config.hasOwnProperty('showNestedReplies') ? !config.showNestedReplies : true;
-		app.parseAndTranslate('topic', 'posts', data, function (html) {
-			var replies = $('[component="post"][data-pid="' + post.toPid + '"] [component="post/replies"]').first();
+		app.parseAndTranslate('topic', 'posts', data, async function (html) {
+			const replies = $('[component="post"][data-pid="' + post.toPid + '"] [component="post/replies"]').first();
 			if (replies.length) {
 				if (config.topicPostSort === 'newest_to_oldest') {
 					replies.prepend(html);
 				} else {
 					replies.append(html);
 				}
-				posts.onNewPostsAddedToDom(html);
+				await posts.onNewPostsAddedToDom(html);
 			}
 		});
 	};
@@ -81,11 +85,11 @@ define('forum/topic/replies', ['navigator', 'components', 'forum/topic/posts'], 
 	};
 
 	function incrementCount(post, inc) {
-		var replyCount = $('[component="post"][data-pid="' + post.toPid + '"]').find('[component="post/reply-count"]').first();
-		var countEl = replyCount.find('[component="post/reply-count/text"]');
-		var avatars = replyCount.find('[component="post/reply-count/avatars"]');
-		var count = Math.max(0, parseInt(countEl.attr('data-replies'), 10) + inc);
-		var timestamp = replyCount.find('.timeago').attr('title', post.timestampISO);
+		const replyCount = $('[component="post"][data-pid="' + post.toPid + '"]').find('[component="post/reply-count"]').first();
+		const countEl = replyCount.find('[component="post/reply-count/text"]');
+		const avatars = replyCount.find('[component="post/reply-count/avatars"]');
+		const count = Math.max(0, (parseInt(countEl.attr('data-replies'), 10) || 0) + inc);
+		const timestamp = replyCount.find('.timeago').attr('title', post.timestampISO);
 
 		countEl.attr('data-replies', count);
 		replyCount.toggleClass('hidden', count <= 0);
@@ -96,8 +100,10 @@ define('forum/topic/replies', ['navigator', 'components', 'forum/topic/posts'], 
 		}
 
 		if (!avatars.find('[data-uid="' + post.uid + '"]').length && count < 7) {
-			app.parseAndTranslate('topic', 'posts', { posts: [{ replies: { users: [post.user] } }] }, function (html) {
-				avatars.prepend(html.find('[component="post/reply-count/avatars"] [component="avatar/picture"]'));
+			app.parseAndTranslate('topic', 'posts', {
+				posts: [{ replies: { count: count, hasMore: false, users: [post.user] } }],
+			}, function (html) {
+				avatars.prepend(html.find('[component="post/reply-count/avatars"]').html());
 			});
 		}
 

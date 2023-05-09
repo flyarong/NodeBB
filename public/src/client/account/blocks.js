@@ -3,24 +3,31 @@
 define('forum/account/blocks', [
 	'forum/account/header',
 	'api',
-], function (header, api) {
-	var Blocks = {};
+	'hooks',
+	'alerts',
+], function (header, api, hooks, alerts) {
+	const Blocks = {};
 
 	Blocks.init = function () {
 		header.init();
+		const blockListEl = $('[component="blocks/search/list"]');
 
 		$('#user-search').on('keyup', function () {
-			var username = this.value;
-
+			const username = this.value;
+			if (!username) {
+				return blockListEl.translateHtml('<li><a href="#" class="dropdown-item">[[admin/menu:search.start-typing]]</a></li>');
+			}
 			api.get('/api/users', {
 				query: username,
 				searchBy: 'username',
 				paginate: false,
 			}, function (err, data) {
 				if (err) {
-					return app.alertError(err.message);
+					return alerts.error(err);
 				}
-
+				if (!data.users.length) {
+					return blockListEl.translateHtml('<li><a href="#" class="dropdown-item">[[users:no-users-found]]</a></li>');
+				}
 				// Only show first 10 matches
 				if (data.matchCount > 10) {
 					data.users.length = 10;
@@ -35,7 +42,7 @@ define('forum/account/blocks', [
 		});
 
 		$('.block-edit').on('click', '[data-action="toggle"]', function () {
-			var uid = parseInt(this.getAttribute('data-uid'), 10);
+			const uid = parseInt(this.getAttribute('data-uid'), 10);
 			socket.emit('user.toggleBlock', {
 				blockeeUid: uid,
 				blockerUid: ajaxify.data.uid,
@@ -45,16 +52,17 @@ define('forum/account/blocks', [
 
 	Blocks.refreshList = function (err) {
 		if (err) {
-			return app.alertError(err.message);
+			return alerts.error(err);
 		}
 
 		$.get(config.relative_path + '/api/' + ajaxify.currentPage)
 			.done(function (payload) {
 				app.parseAndTranslate('account/blocks', 'users', payload, function (html) {
+					html.find('.timeago').timeago();
 					$('#users-container').html(html);
 					$('#users-container').siblings('div.alert')[html.length ? 'hide' : 'show']();
 				});
-				$(window).trigger('action:user.blocks.toggle', { data: payload });
+				hooks.fire('action:user.blocks.toggle', { data: payload });
 			})
 			.fail(function () {
 				ajaxify.go(ajaxify.currentPage);

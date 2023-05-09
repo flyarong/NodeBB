@@ -1,22 +1,13 @@
 'use strict';
 
 
-define('settings', ['hooks'], function (hooks) {
-	var DEFAULT_PLUGINS = [
-		'settings/checkbox',
-		'settings/number',
-		'settings/textarea',
-		'settings/select',
-		'settings/array',
-		'settings/key',
-		'settings/object',
-		'settings/sorted-list',
-	];
-
-	var Settings;
-	var onReady = [];
-	var waitingJobs = 0;
-	var helper;
+define('settings', ['hooks', 'alerts'], function (hooks, alerts) {
+	// eslint-disable-next-line prefer-const
+	let Settings;
+	let onReady = [];
+	let waitingJobs = 0;
+	// eslint-disable-next-line prefer-const
+	let helper;
 
 	/**
 	 Returns the hook of given name that matches the given type or element.
@@ -24,23 +15,22 @@ define('settings', ['hooks'], function (hooks) {
 	 @param name The name of the hook.
 	 */
 	function getHook(type, name) {
-		var hook;
-		var plugin;
 		if (typeof type !== 'string') {
 			type = $(type);
 			type = type.data('type') || type.attr('type') || type.prop('tagName');
 		}
-		plugin = Settings.plugins[type.toLowerCase()];
+		const plugin = Settings.plugins[type.toLowerCase()];
 		if (plugin == null) {
 			return;
 		}
-		hook = plugin[name];
+		const hook = plugin[name];
 		if (typeof hook === 'function') {
 			return hook;
 		}
 		return null;
 	}
 
+	// eslint-disable-next-line prefer-const
 	helper = {
 		/**
 		 @returns Object A deep clone of the given object.
@@ -59,8 +49,8 @@ define('settings', ['hooks'], function (hooks) {
 		 @returns HTMLElement The created element.
 		 */
 		createElement: function (tagName, data, text) {
-			var element = document.createElement(tagName);
-			for (var k in data) {
+			const element = document.createElement(tagName);
+			for (const k in data) {
 				if (data.hasOwnProperty(k)) {
 					element.setAttribute(k, data[k]);
 				}
@@ -75,7 +65,7 @@ define('settings', ['hooks'], function (hooks) {
 		 @param element The element to initialize.
 		 */
 		initElement: function (element) {
-			var hook = getHook(element, 'init');
+			const hook = getHook(element, 'init');
 			if (hook != null) {
 				hook.call(Settings, $(element));
 			}
@@ -85,7 +75,7 @@ define('settings', ['hooks'], function (hooks) {
 		 @param element The element to destruct.
 		 */
 		destructElement: function (element) {
-			var hook = getHook(element, 'destruct');
+			const hook = getHook(element, 'destruct');
 			if (hook != null) {
 				hook.call(Settings, $(element));
 			}
@@ -98,8 +88,8 @@ define('settings', ['hooks'], function (hooks) {
 		 @returns JQuery The created element.
 		 */
 		createElementOfType: function (type, tagName, data) {
-			var element;
-			var hook = getHook(type, 'create');
+			let element;
+			const hook = getHook(type, 'create');
 			if (hook != null) {
 				element = $(hook.call(Settings, type, tagName, data));
 			} else {
@@ -123,12 +113,12 @@ define('settings', ['hooks'], function (hooks) {
 		 @returns Array The filtered and/or modified Array.
 		 */
 		cleanArray: function (array, trim, empty) {
-			var cleaned = [];
+			const cleaned = [];
 			if (!trim && empty) {
 				return array;
 			}
-			for (var i = 0; i < array.length; i += 1) {
-				var value = array[i];
+			for (let i = 0; i < array.length; i += 1) {
+				let value = array[i];
 				if (trim) {
 					if (value === !!value) {
 						value = +value;
@@ -155,18 +145,18 @@ define('settings', ['hooks'], function (hooks) {
 		 @returns Object The value of the element.
 		 */
 		readValue: function (element) {
-			var empty = !helper.isFalse(element.data('empty'));
-			var trim = !helper.isFalse(element.data('trim'));
-			var split = element.data('split');
-			var hook = getHook(element, 'get');
-			var value;
+			let empty = !helper.isFalse(element.data('empty'));
+			const trim = !helper.isFalse(element.data('trim'));
+			const split = element.data('split');
+			const hook = getHook(element, 'get');
+			let value;
 			if (hook != null) {
 				return hook.call(Settings, element, trim, empty);
 			}
 			if (split != null) {
 				empty = helper.isTrue(element.data('empty')); // default empty-value is false for arrays
 				value = element.val();
-				var array = (value != null && value.split(split || ',')) || [];
+				const array = (value != null && value.split(split || ',')) || [];
 				return helper.cleanArray(array, trim, empty);
 			}
 			value = element.val();
@@ -184,8 +174,8 @@ define('settings', ['hooks'], function (hooks) {
 		 @param value The value to set.
 		 */
 		fillField: function (element, value) {
-			var hook = getHook(element, 'set');
-			var trim = element.data('trim');
+			const hook = getHook(element, 'set');
+			let trim = element.data('trim');
 			trim = trim !== 'false' && +trim !== 0;
 			if (hook != null) {
 				return hook.call(Settings, element, value, trim);
@@ -219,14 +209,14 @@ define('settings', ['hooks'], function (hooks) {
 		initFields: function (wrapper) {
 			$('[data-key]', wrapper).each(function (ignored, field) {
 				field = $(field);
-				var hook = getHook(field, 'init');
-				var keyParts = field.data('key').split('.');
-				var value = Settings.get();
+				const hook = getHook(field, 'init');
+				const keyParts = field.data('key').split('.');
+				let value = Settings.get();
 				if (hook != null) {
 					hook.call(Settings, field);
 				}
-				for (var i = 0; i < keyParts.length; i += 1) {
-					var part = keyParts[i];
+				for (let i = 0; i < keyParts.length; i += 1) {
+					const part = keyParts[i];
 					if (part && value != null) {
 						value = value[part];
 					}
@@ -254,7 +244,7 @@ define('settings', ['hooks'], function (hooks) {
 			if (waitingJobs > 0) {
 				waitingJobs -= amount;
 				if (waitingJobs <= 0) {
-					for (var i = 0; i < onReady.length; i += 1) {
+					for (let i = 0; i < onReady.length; i += 1) {
 						onReady[i]();
 					}
 					onReady = [];
@@ -273,7 +263,7 @@ define('settings', ['hooks'], function (hooks) {
 			}
 		},
 		serializeForm: function (formEl) {
-			var values = formEl.serializeObject();
+			const values = formEl.serializeObject();
 
 			// "Fix" checkbox values, so that unchecked options are not omitted
 			formEl.find('input[type="checkbox"]').each(function (idx, inputEl) {
@@ -309,17 +299,17 @@ define('settings', ['hooks'], function (hooks) {
 			}, function (err) {
 				if (notify) {
 					if (err) {
-						app.alert({
-							title: 'Settings Not Saved',
+						alerts.alert({
+							title: '[[admin/admin:changes-not-saved]]',
 							type: 'danger',
-							message: 'NodeBB failed to save the settings.',
+							message: `[[admin/admin/changes-not-saved-message, ${err.message}]]`,
 							timeout: 5000,
 						});
 					} else {
-						app.alert({
-							title: 'Settings Saved',
+						alerts.alert({
+							title: '[[admin/admin:changes-saved]]',
 							type: 'success',
-							message: 'Settings have been successfully saved',
+							message: '[[admin/admin:changes-saved-message]]',
 							timeout: 2500,
 						});
 					}
@@ -341,7 +331,7 @@ define('settings', ['hooks'], function (hooks) {
 		},
 	};
 
-
+	// eslint-disable-next-line prefer-const
 	Settings = {
 		helper: helper,
 		plugins: {},
@@ -371,8 +361,8 @@ define('settings', ['hooks'], function (hooks) {
 			if (typeof service.use === 'function') {
 				service.use.call(Settings);
 			}
-			for (var i = 0; i < types.length; i += 1) {
-				var type = types[i].toLowerCase();
+			for (let i = 0; i < types.length; i += 1) {
+				const type = types[i].toLowerCase();
 				if (Settings.plugins[type] == null) {
 					Settings.plugins[type] = service;
 				}
@@ -429,20 +419,20 @@ define('settings', ['hooks'], function (hooks) {
 		 @param notify Whether to send notification when settings got saved.
 		 */
 		persist: function (hash, wrapper, callback, notify) {
-			var notSaved = [];
-			var fields = $('[data-key]', wrapper || 'form').toArray();
+			const notSaved = [];
+			const fields = $('[data-key]', wrapper || 'form').toArray();
 			if (notify == null) {
 				notify = true;
 			}
-			for (var i = 0; i < fields.length; i += 1) {
-				var field = $(fields[i]);
-				var value = helper.readValue(field);
-				var parentCfg = Settings.get();
-				var keyParts = field.data('key').split('.');
-				var lastKey = keyParts[keyParts.length - 1];
+			for (let i = 0; i < fields.length; i += 1) {
+				const field = $(fields[i]);
+				const value = helper.readValue(field);
+				let parentCfg = Settings.get();
+				const keyParts = field.data('key').split('.');
+				const lastKey = keyParts[keyParts.length - 1];
 				if (keyParts.length > 1) {
-					for (var j = 0; j < keyParts.length - 1; j += 1) {
-						var part = keyParts[j];
+					for (let j = 0; j < keyParts.length - 1; j += 1) {
+						const part = keyParts[j];
 						if (part && parentCfg != null) {
 							parentCfg = parentCfg[part];
 						}
@@ -459,7 +449,7 @@ define('settings', ['hooks'], function (hooks) {
 				}
 			}
 			if (notSaved.length) {
-				app.alert({
+				alerts.alert({
 					title: 'Attributes Not Saved',
 					message: "'" + (notSaved.join(', ')) + "' could not be saved. Please contact the plugin-author!",
 					type: 'danger',
@@ -470,7 +460,7 @@ define('settings', ['hooks'], function (hooks) {
 		},
 		load: function (hash, formEl, callback) {
 			callback = callback || function () {};
-			var call = formEl.attr('data-socket-get');
+			const call = formEl.attr('data-socket-get');
 
 			socket.emit(call || 'admin.settings.get', {
 				hash: hash,
@@ -480,7 +470,7 @@ define('settings', ['hooks'], function (hooks) {
 				}
 				// multipe selects are saved as json arrays, parse them here
 				$(formEl).find('select[multiple]').each(function (idx, selectEl) {
-					var key = $(selectEl).attr('name');
+					const key = $(selectEl).attr('name');
 					if (key && values.hasOwnProperty(key)) {
 						try {
 							values[key] = JSON.parse(values[key]);
@@ -500,9 +490,6 @@ define('settings', ['hooks'], function (hooks) {
 				});
 
 				$(formEl).deserialize(values);
-				$(formEl).find('input[type="checkbox"]').each(function () {
-					$(this).parents('.mdl-switch').toggleClass('is-checked', $(this).is(':checked'));
-				});
 				hooks.fire('action:admin.settingsLoaded');
 
 				// Handle unsaved changes
@@ -511,7 +498,7 @@ define('settings', ['hooks'], function (hooks) {
 					app.flags._unsaved = true;
 				});
 
-				var saveEl = document.getElementById('save');
+				const saveEl = document.getElementById('save');
 				if (saveEl) {
 					require(['mousetrap'], function (mousetrap) {
 						mousetrap.bind('ctrl+s', function (ev) {
@@ -527,11 +514,17 @@ define('settings', ['hooks'], function (hooks) {
 		save: function (hash, formEl, callback) {
 			formEl = $(formEl);
 
+			const controls = formEl.get(0).elements;
+			const ok = Settings.check(controls);
+			if (!ok) {
+				return;
+			}
+
 			if (formEl.length) {
-				var values = helper.serializeForm(formEl);
+				const values = helper.serializeForm(formEl);
 
 				helper.whenReady(function () {
-					var list = formEl.find('[data-sorted-list]');
+					const list = formEl.find('[data-sorted-list]');
 					if (list.length) {
 						list.each((idx, item) => {
 							getHook(item, 'set').call(Settings, $(item), values);
@@ -539,7 +532,7 @@ define('settings', ['hooks'], function (hooks) {
 					}
 				});
 
-				var call = formEl.attr('data-socket-set');
+				const call = formEl.attr('data-socket-set');
 				socket.emit(call || 'admin.settings.set', {
 					hash: hash,
 					values: values,
@@ -553,27 +546,57 @@ define('settings', ['hooks'], function (hooks) {
 					if (typeof callback === 'function') {
 						callback(err);
 					} else if (err) {
-						app.alert({
-							title: 'Error while saving settings',
+						alerts.alert({
+							title: '[[admin/admin:changes-not-saved]]',
+							message: `[[admin/admin:changes-not-saved-message, ${err.message}]]`,
 							type: 'error',
 							timeout: 2500,
 						});
 					} else {
-						app.alert({
-							title: 'Settings Saved',
-							type: 'success',
-							timeout: 2500,
-						});
+						const saveBtn = document.getElementById('save');
+						saveBtn.classList.toggle('saved', true);
+						setTimeout(() => {
+							saveBtn.classList.toggle('saved', false);
+						}, 5000);
 					}
 				});
 			}
+		},
+		check: function (controls) {
+			const onTrigger = (e) => {
+				const wrapper = e.target.closest('.form-group');
+				if (wrapper) {
+					wrapper.classList.add('has-error');
+				}
+
+				e.target.removeEventListener('invalid', onTrigger);
+			};
+
+			return Array.prototype.map.call(controls, (controlEl) => {
+				const wrapper = controlEl.closest('.form-group');
+				if (wrapper) {
+					wrapper.classList.remove('has-error');
+				}
+
+				controlEl.addEventListener('invalid', onTrigger);
+				return controlEl.reportValidity();
+			}).every(Boolean);
 		},
 	};
 
 
 	helper.registerReadyJobs(1);
-	require(DEFAULT_PLUGINS, function () {
-		for (var i = 0; i < arguments.length; i += 1) {
+	require([
+		'settings/checkbox',
+		'settings/number',
+		'settings/textarea',
+		'settings/select',
+		'settings/array',
+		'settings/key',
+		'settings/object',
+		'settings/sorted-list',
+	], function () {
+		for (let i = 0; i < arguments.length; i += 1) {
 			Settings.registerPlugin(arguments[i]);
 		}
 		helper.beforeReadyJobsDecreased();

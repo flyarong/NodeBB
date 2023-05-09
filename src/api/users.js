@@ -1,6 +1,11 @@
 'use strict';
 
+const util = require('util');
+const path = require('path');
+const fs = require('fs').promises;
+
 const validator = require('validator');
+const winston = require('winston');
 
 const db = require('../database');
 const user = require('../user');
@@ -13,15 +18,30 @@ const plugins = require('../plugins');
 const events = require('../events');
 const translator = require('../translator');
 const sockets = require('../socket.io');
+const utils = require('../utils');
 
 const usersAPI = module.exports;
+
+const hasAdminPrivilege = async (uid, privilege) => {
+	const ok = await privileges.admin.can(`admin:${privilege}`, uid);
+	if (!ok) {
+		throw new Error('[[error:no-privileges]]');
+	}
+};
 
 usersAPI.create = async function (caller, data) {
 	if (!data) {
 		throw new Error('[[error:invalid-data]]');
 	}
+	await hasAdminPrivilege(caller.uid, 'users');
+
 	const uid = await user.create(data);
 	return await user.getUserData(uid);
+};
+
+usersAPI.get = async (caller, { uid }) => {
+	const userData = await user.getUserData(uid);
+	return await user.hidePrivateData(userData, caller.uid);
 };
 
 usersAPI.update = async function (caller, data) {
@@ -44,7 +64,7 @@ usersAPI.update = async function (caller, data) {
 	]);
 
 	// Changing own email/username requires password confirmation
-	if (['email', 'username'].some(prop => Object.keys(data).includes(prop))) {
+	if (data.hasOwnProperty('email') || data.hasOwnProperty('username')) {
 		await isPrivilegedOrSelfAndPasswordMatch(caller, data);
 	}
 
@@ -63,20 +83,15 @@ usersAPI.update = async function (caller, data) {
 	await user.updateProfile(caller.uid, data);
 	const userData = await user.getUserData(data.uid);
 
-	async function log(type, eventData) {
-		eventData.type = type;
-		eventData.uid = caller.uid;
-		eventData.targetUid = data.uid;
-		eventData.ip = caller.ip;
-		await events.log(eventData);
-	}
-
-	if (userData.email !== oldUserData.email) {
-		await log('email-change', { oldEmail: oldUserData.email, newEmail: userData.email });
-	}
-
 	if (userData.username !== oldUserData.username) {
-		await log('username-change', { oldUsername: oldUserData.username, newUsername: userData.username });
+		await events.log({
+			type: 'username-change',
+			uid: caller.uid,
+			targetUid: data.uid,
+			ip: caller.ip,
+			oldUsername: oldUserData.username,
+			newUsername: userData.username,
+		});
 	}
 	return userData;
 };
@@ -94,6 +109,8 @@ usersAPI.deleteAccount = async function (caller, { uid, password }) {
 };
 
 usersAPI.deleteMany = async function (caller, data) {
+	await hasAdminPrivilege(caller.uid, 'users');
+
 	if (await canDeleteUids(data.uids)) {
 		await Promise.all(data.uids.map(uid => processDeletion({ uid, method: 'delete', caller })));
 	}
@@ -142,9 +159,11 @@ usersAPI.follow = async function (caller, data) {
 	});
 
 	const userData = await user.getUserFields(caller.uid, ['username', 'userslug']);
+	const { displayname } = userData;
+
 	const notifObj = await notifications.create({
 		type: 'follow',
-		bodyShort: `[[notifications:user_started_following_you, ${userData.username}]]`,
+		bodyShort: `[[notifications:user_started_following_you, ${displayname}]]`,
 		nid: `follow:${data.uid}:uid:${caller.uid}`,
 		from: caller.uid,
 		path: `/uid/${data.uid}/followers`,
@@ -228,17 +247,254 @@ usersAPI.unban = async function (caller, data) {
 	});
 };
 
+usersAPI.mute = async function (caller, data) {
+	if (!await privileges.users.hasMutePrivilege(caller.uid)) {
+		throw new Error('[[error:no-privileges]]');
+	} else if (await user.isAdministrator(data.uid)) {
+		throw new Error('[[error:cant-mute-other-admins]]');
+	}
+	const reason = data.reason || '[[user:info.muted-no-reason]]';
+	await db.setObject(`user:${data.uid}`, {
+		mutedUntil: data.until,
+		mutedReason: reason,
+	});
+	const now = Date.now();
+	const muteKey = `uid:${data.uid}:mute:${now}`;
+	const muteData = {
+		fromUid: caller.uid,
+		uid: data.uid,
+		timestamp: now,
+		expire: data.until,
+	};
+	if (data.reason) {
+		muteData.reason = reason;
+	}
+	await db.sortedSetAdd(`uid:${data.uid}:mutes:timestamp`, now, muteKey);
+	await db.setObject(muteKey, muteData);
+	await events.log({
+		type: 'user-mute',
+		uid: caller.uid,
+		targetUid: data.uid,
+		ip: caller.ip,
+		reason: data.reason || undefined,
+	});
+	plugins.hooks.fire('action:user.muted', {
+		callerUid: caller.uid,
+		ip: caller.ip,
+		uid: data.uid,
+		until: data.until > 0 ? data.until : undefined,
+		reason: data.reason || undefined,
+	});
+};
+
+usersAPI.unmute = async function (caller, data) {
+	if (!await privileges.users.hasMutePrivilege(caller.uid)) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	await db.deleteObjectFields(`user:${data.uid}`, ['mutedUntil', 'mutedReason']);
+
+	await events.log({
+		type: 'user-unmute',
+		uid: caller.uid,
+		targetUid: data.uid,
+		ip: caller.ip,
+	});
+	plugins.hooks.fire('action:user.unmuted', {
+		callerUid: caller.uid,
+		ip: caller.ip,
+		uid: data.uid,
+	});
+};
+
+usersAPI.generateToken = async (caller, { uid, description }) => {
+	await hasAdminPrivilege(caller.uid, 'settings');
+	if (parseInt(uid, 10) !== parseInt(caller.uid, 10)) {
+		throw new Error('[[error:invalid-uid]]');
+	}
+
+	const settings = await meta.settings.get('core.api');
+	settings.tokens = settings.tokens || [];
+
+	const newToken = {
+		token: utils.generateUUID(),
+		uid: caller.uid,
+		description: description || '',
+		timestamp: Date.now(),
+	};
+	settings.tokens.push(newToken);
+	await meta.settings.set('core.api', settings);
+
+	return newToken;
+};
+
+usersAPI.deleteToken = async (caller, { uid, token }) => {
+	await hasAdminPrivilege(caller.uid, 'settings');
+	if (parseInt(uid, 10) !== parseInt(caller.uid, 10)) {
+		throw new Error('[[error:invalid-uid]]');
+	}
+
+	const settings = await meta.settings.get('core.api');
+	const beforeLen = settings.tokens.length;
+	settings.tokens = settings.tokens.filter(tokenObj => tokenObj.token !== token);
+	if (beforeLen !== settings.tokens.length) {
+		await meta.settings.set('core.api', settings);
+		return true;
+	}
+
+	return false;
+};
+
+const getSessionAsync = util.promisify((sid, callback) => {
+	db.sessionStore.get(sid, (err, sessionObj) => callback(err, sessionObj || null));
+});
+
+usersAPI.revokeSession = async (caller, { uid, uuid }) => {
+	// Only admins or global mods (besides the user themselves) can revoke sessions
+	if (parseInt(uid, 10) !== caller.uid && !await user.isAdminOrGlobalMod(caller.uid)) {
+		throw new Error('[[error:invalid-uid]]');
+	}
+
+	const sids = await db.getSortedSetRange(`uid:${uid}:sessions`, 0, -1);
+	let _id;
+	for (const sid of sids) {
+		/* eslint-disable no-await-in-loop */
+		const sessionObj = await getSessionAsync(sid);
+		if (sessionObj && sessionObj.meta && sessionObj.meta.uuid === uuid) {
+			_id = sid;
+			break;
+		}
+	}
+
+	if (!_id) {
+		throw new Error('[[error:no-session-found]]');
+	}
+
+	await user.auth.revokeSession(_id, uid);
+};
+
+usersAPI.invite = async (caller, { emails, groupsToJoin, uid }) => {
+	if (!emails || !Array.isArray(groupsToJoin)) {
+		throw new Error('[[error:invalid-data]]');
+	}
+
+	// For simplicity, this API route is restricted to self-use only. This can change if needed.
+	if (parseInt(caller.uid, 10) !== parseInt(uid, 10)) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	const canInvite = await privileges.users.hasInvitePrivilege(caller.uid);
+	if (!canInvite) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	const { registrationType } = meta.config;
+	const isAdmin = await user.isAdministrator(caller.uid);
+	if (registrationType === 'admin-invite-only' && !isAdmin) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	const inviteGroups = (await groups.getUserInviteGroups(caller.uid)).map(group => group.name);
+	const cannotInvite = groupsToJoin.some(group => !inviteGroups.includes(group));
+	if (groupsToJoin.length > 0 && cannotInvite) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	const max = meta.config.maximumInvites;
+	const emailsArr = emails.split(',').map(email => email.trim()).filter(Boolean);
+
+	for (const email of emailsArr) {
+		/* eslint-disable no-await-in-loop */
+		let invites = 0;
+		if (max) {
+			invites = await user.getInvitesNumber(caller.uid);
+		}
+		if (!isAdmin && max && invites >= max) {
+			throw new Error(`[[error:invite-maximum-met, ${invites}, ${max}]]`);
+		}
+
+		await user.sendInvitationEmail(caller.uid, email, groupsToJoin);
+	}
+};
+
+usersAPI.getInviteGroups = async (caller, { uid }) => {
+	// For simplicity, this API route is restricted to self-use only. This can change if needed.
+	if (parseInt(uid, 10) !== parseInt(caller.uid, 10)) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	const userInviteGroups = await groups.getUserInviteGroups(uid);
+	return userInviteGroups.map(group => group.displayName);
+};
+
+usersAPI.addEmail = async (caller, { email, skipConfirmation, uid }) => {
+	const canManageUsers = await privileges.admin.can('admin:users', caller.uid);
+	skipConfirmation = canManageUsers && skipConfirmation;
+
+	if (skipConfirmation) {
+		await user.setUserField(uid, 'email', email);
+		await user.email.confirmByUid(uid);
+	} else {
+		await usersAPI.update(caller, { uid, email });
+	}
+
+	return await db.getSortedSetRangeByScore('email:uid', 0, 500, uid, uid);
+};
+
+usersAPI.listEmails = async (caller, { uid }) => {
+	const [isPrivileged, { showemail }] = await Promise.all([
+		user.isPrivileged(caller.uid),
+		user.getSettings(uid),
+	]);
+	const isSelf = caller.uid === parseInt(uid, 10);
+
+	if (isSelf || isPrivileged || showemail) {
+		return await db.getSortedSetRangeByScore('email:uid', 0, 500, uid, uid);
+	}
+
+	return null;
+};
+
+usersAPI.getEmail = async (caller, { uid, email }) => {
+	const [isPrivileged, { showemail }, exists] = await Promise.all([
+		user.isPrivileged(caller.uid),
+		user.getSettings(uid),
+		db.isSortedSetMember('email:uid', email.toLowerCase()),
+	]);
+	const isSelf = caller.uid === parseInt(uid, 10);
+
+	return exists && (isSelf || isPrivileged || showemail);
+};
+
+usersAPI.confirmEmail = async (caller, { uid, email, sessionId }) => {
+	const [pending, current, canManage] = await Promise.all([
+		user.email.isValidationPending(uid, email),
+		user.getUserField(uid, 'email'),
+		privileges.admin.can('admin:users', caller.uid),
+	]);
+
+	if (!canManage) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	if (pending) { // has active confirmation request
+		const code = await db.get(`confirm:byUid:${uid}`);
+		await user.email.confirmByCode(code, sessionId);
+		return true;
+	} else if (current && current === email) { // i.e. old account w/ unconf. email in user hash
+		await user.email.confirmByUid(uid);
+		return true;
+	}
+
+	return false;
+};
+
 async function isPrivilegedOrSelfAndPasswordMatch(caller, data) {
 	const { uid } = caller;
 	const isSelf = parseInt(uid, 10) === parseInt(data.uid, 10);
+	const canEdit = await privileges.users.canEdit(uid, data.uid);
 
-	const [isAdmin, isTargetAdmin, isGlobalMod] = await Promise.all([
-		user.isAdministrator(uid),
-		user.isAdministrator(data.uid),
-		user.isGlobalModerator(uid),
-	]);
-
-	if ((isTargetAdmin && !isAdmin) || (!isSelf && !(isAdmin || isGlobalMod))) {
+	if (!canEdit) {
 		throw new Error('[[error:no-privileges]]');
 	}
 	const [hasPassword, passwordMatch] = await Promise.all([
@@ -253,19 +509,18 @@ async function isPrivilegedOrSelfAndPasswordMatch(caller, data) {
 
 async function processDeletion({ uid, method, password, caller }) {
 	const isTargetAdmin = await user.isAdministrator(uid);
-	const isSelf = parseInt(uid, 10) === caller.uid;
-	const isAdmin = await user.isAdministrator(caller.uid);
+	const isSelf = parseInt(uid, 10) === parseInt(caller.uid, 10);
+	const hasAdminPrivilege = await privileges.admin.can('admin:users', caller.uid);
 
 	if (isSelf && meta.config.allowAccountDelete !== 1) {
 		throw new Error('[[error:account-deletion-disabled]]');
-	} else if (!isSelf && !isAdmin) {
+	} else if (!isSelf && !hasAdminPrivilege) {
 		throw new Error('[[error:no-privileges]]');
 	} else if (isTargetAdmin) {
 		throw new Error('[[error:cant-delete-admin]');
 	}
 
 	// Privilege checks -- only deleteAccount is available for non-admins
-	const hasAdminPrivilege = await privileges.admin.can('admin:users', caller.uid);
 	if (!hasAdminPrivilege && ['delete', 'deleteContent'].includes(method)) {
 		throw new Error('[[error:no-privileges]]');
 	}
@@ -321,6 +576,9 @@ async function canDeleteUids(uids) {
 }
 
 usersAPI.search = async function (caller, data) {
+	if (!data) {
+		throw new Error('[[error:invalid-data]]');
+	}
 	const [allowed, isPrivileged] = await Promise.all([
 		privileges.global.can('search:users', caller.uid),
 		user.isPrivileged(caller.uid),
@@ -343,5 +601,114 @@ usersAPI.search = async function (caller, data) {
 		page: data.page || 1,
 		sortBy: data.sortBy || 'lastonline',
 		filters: filters,
+	});
+};
+
+usersAPI.changePicture = async (caller, data) => {
+	if (!data) {
+		throw new Error('[[error:invalid-data]]');
+	}
+
+	const { type, url } = data;
+	let picture = '';
+
+	await user.checkMinReputation(caller.uid, data.uid, 'min:rep:profile-picture');
+	const canEdit = await privileges.users.canEdit(caller.uid, data.uid);
+	if (!canEdit) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	if (type === 'default') {
+		picture = '';
+	} else if (type === 'uploaded') {
+		picture = await user.getUserField(data.uid, 'uploadedpicture');
+	} else if (type === 'external' && url) {
+		picture = validator.escape(url);
+	} else {
+		const returnData = await plugins.hooks.fire('filter:user.getPicture', {
+			uid: caller.uid,
+			type: type,
+			picture: undefined,
+		});
+		picture = returnData && returnData.picture;
+	}
+
+	const validBackgrounds = await user.getIconBackgrounds(caller.uid);
+	if (!validBackgrounds.includes(data.bgColor)) {
+		data.bgColor = validBackgrounds[0];
+	}
+
+	await user.updateProfile(caller.uid, {
+		uid: data.uid,
+		picture: picture,
+		'icon:bgColor': data.bgColor,
+	}, ['picture', 'icon:bgColor']);
+};
+
+const exportMetadata = new Map([
+	['posts', ['csv', 'text/csv']],
+	['uploads', ['zip', 'application/zip']],
+	['profile', ['json', 'application/json']],
+]);
+
+const prepareExport = async ({ uid, type }) => {
+	const [extension] = exportMetadata.get(type);
+	const filename = `${uid}_${type}.${extension}`;
+	try {
+		const stat = await fs.stat(path.join(__dirname, '../../build/export', filename));
+		return stat;
+	} catch (e) {
+		return false;
+	}
+};
+
+usersAPI.checkExportByType = async (caller, { uid, type }) => await prepareExport({ uid, type });
+
+usersAPI.getExportByType = async (caller, { uid, type }) => {
+	const [extension, mime] = exportMetadata.get(type);
+	const filename = `${uid}_${type}.${extension}`;
+
+	const exists = await prepareExport({ uid, type });
+	if (exists) {
+		return { filename, mime };
+	}
+
+	return false;
+};
+
+usersAPI.generateExport = async (caller, { uid, type }) => {
+	const validTypes = ['profile', 'posts', 'uploads'];
+	if (!validTypes.includes(type)) {
+		throw new Error('[[error:invalid-data]]');
+	}
+	const count = await db.incrObjectField('locks', `export:${uid}${type}`);
+	if (count > 1) {
+		throw new Error('[[error:already-exporting]]');
+	}
+
+	const child = require('child_process').fork(`./src/user/jobs/export-${type}.js`, [], {
+		env: process.env,
+	});
+	child.send({ uid });
+	child.on('error', async (err) => {
+		winston.error(err.stack);
+		await db.deleteObjectField('locks', `export:${uid}${type}`);
+	});
+	child.on('exit', async () => {
+		await db.deleteObjectField('locks', `export:${uid}${type}`);
+		const { displayname } = await user.getUserFields(uid, ['username']);
+		const n = await notifications.create({
+			bodyShort: `[[notifications:${type}-exported, ${displayname}]]`,
+			path: `/api/v3/users/${uid}/exports/${type}`,
+			nid: `${type}:export:${uid}`,
+			from: uid,
+		});
+		await notifications.push(n, [caller.uid]);
+		await events.log({
+			type: `export:${type}`,
+			uid: caller.uid,
+			targetUid: uid,
+			ip: caller.ip,
+		});
 	});
 };

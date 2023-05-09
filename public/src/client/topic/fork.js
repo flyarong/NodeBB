@@ -1,11 +1,11 @@
 'use strict';
 
 
-define('forum/topic/fork', ['components', 'postSelect'], function (components, postSelect) {
-	var Fork = {};
-	var forkModal;
-	var forkCommit;
-	var fromTid;
+define('forum/topic/fork', ['components', 'postSelect', 'alerts'], function (components, postSelect, alerts) {
+	const Fork = {};
+	let forkModal;
+	let forkCommit;
+	let fromTid;
 
 	Fork.init = function () {
 		fromTid = ajaxify.data.tid;
@@ -16,14 +16,14 @@ define('forum/topic/fork', ['components', 'postSelect'], function (components, p
 			return;
 		}
 
-		app.parseAndTranslate('partials/fork_thread_modal', {}, function (html) {
+		app.parseAndTranslate('modals/fork-topic', {}, function (html) {
 			forkModal = html;
 
 			forkCommit = forkModal.find('#fork_thread_commit');
 
 			$('body').append(forkModal);
 
-			forkModal.find('.close,#fork_thread_cancel').on('click', closeForkModal);
+			forkModal.find('#fork_thread_cancel').on('click', closeForkModal);
 			forkModal.find('#fork-title').on('keyup', checkForkButtonEnable);
 
 			postSelect.init(function () {
@@ -57,10 +57,10 @@ define('forum/topic/fork', ['components', 'postSelect'], function (components, p
 			}
 			forkCommit.removeAttr('disabled');
 			if (err) {
-				return app.alertError(err.message);
+				return alerts.error(err.message);
 			}
 
-			app.alert({
+			alerts.alert({
 				timeout: 5000,
 				title: '[[global:alert.success]]',
 				message: '[[topic:fork_success]]',

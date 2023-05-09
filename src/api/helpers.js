@@ -13,7 +13,7 @@ const events = require('../events');
 exports.setDefaultPostData = function (reqOrSocket, data) {
 	data.uid = reqOrSocket.uid;
 	data.req = exports.buildReqObject(reqOrSocket, { ...data });
-	data.timestamp = parseInt(data.timestamp, 10) || Date.now();
+	data.timestamp = Date.now();
 	data.fromQueue = false;
 };
 
@@ -40,7 +40,7 @@ exports.buildReqObject = (req, payload) => {
 		protocol: encrypted ? 'https' : 'http',
 		secure: encrypted,
 		url: referer,
-		path: referer.substr(referer.indexOf(host) + host.length),
+		path: referer.slice(referer.indexOf(host) + host.length),
 		headers: headers,
 	};
 };
@@ -50,8 +50,8 @@ exports.doTopicAction = async function (action, event, caller, { tids }) {
 		throw new Error('[[error:invalid-tid]]');
 	}
 
-	const exists = (await Promise.all(tids.map(async tid => await topics.exists(tid)))).every(Boolean);
-	if (!exists) {
+	const exists = await topics.exists(tids);
+	if (!exists.every(Boolean)) {
 		throw new Error('[[error:no-topic]]');
 	}
 

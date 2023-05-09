@@ -101,7 +101,7 @@ Emailer.getTemplates = async (config) => {
 	emails = emails.filter(email => !email.endsWith('.js'));
 
 	const templates = await Promise.all(emails.map(async (email) => {
-		const path = email.replace(emailsPath, '').substr(1).replace('.tpl', '');
+		const path = email.replace(emailsPath, '').slice(1).replace('.tpl', '');
 		const original = await fs.promises.readFile(email, 'utf8');
 
 		return {
@@ -218,8 +218,22 @@ Emailer.send = async (template, uid, params) => {
 		throw Error('[emailer] App not ready!');
 	}
 
-	let userData = await User.getUserFields(uid, ['email', 'username', 'email:confirmed']);
+	let userData = await User.getUserFields(uid, ['email', 'username', 'email:confirmed', 'banned']);
+
+	// 'welcome' and 'verify-email' explicitly used passed-in email address
+	if (['welcome', 'verify-email'].includes(template)) {
+		userData.email = params.email;
+	}
+
 	({ template, userData, params } = await Plugins.hooks.fire('filter:email.prepare', { template, uid, userData, params }));
+
+	if (!meta.config.sendEmailToBanned && template !== 'banned') {
+		if (userData.banned) {
+			winston.warn(`[emailer/send] User ${userData.username} (uid: ${uid}) is banned; not sending email due to system config.`);
+			return;
+		}
+	}
+
 	if (!userData || !userData.email) {
 		if (process.env.NODE_ENV === 'development') {
 			winston.warn(`uid : ${uid} has no email, not sending "${template}" email.`);
@@ -227,8 +241,8 @@ Emailer.send = async (template, uid, params) => {
 		return;
 	}
 
-	const allowedTpls = ['verify_email', 'welcome', 'registration_accepted'];
-	if (meta.config.requireEmailConfirmation && !userData['email:confirmed'] && !allowedTpls.includes(template)) {
+	const allowedTpls = ['verify-email', 'welcome', 'registration_accepted', 'reset', 'reset_notify'];
+	if (!meta.config.includeUnverifiedEmails && !userData['email:confirmed'] && !allowedTpls.includes(template)) {
 		if (process.env.NODE_ENV === 'development') {
 			winston.warn(`uid : ${uid} (${userData.email}) has not confirmed email, not sending "${template}" email.`);
 		}
@@ -318,7 +332,7 @@ Emailer.sendToEmail = async (template, email, language, params) => {
 		!Plugins.hooks.hasListeners('static:email.send');
 	try {
 		if (Plugins.hooks.hasListeners('filter:email.send')) {
-			// Deprecated, remove in v1.18.0
+			// Deprecated, remove in v1.19.0
 			await Plugins.hooks.fire('filter:email.send', data);
 		} else if (Plugins.hooks.hasListeners('static:email.send')) {
 			await Plugins.hooks.fire('static:email.send', data);
@@ -343,8 +357,6 @@ Emailer.sendViaFallback = async (data) => {
 	// NodeMailer uses a combined "from"
 	data.from = `${data.from_name}<${data.from}>`;
 	delete data.from_name;
-
-	winston.verbose(`[emailer] Sending email to uid ${data.uid} (${data.to})`);
 	await Emailer.fallbackTransport.sendMail(data);
 };
 

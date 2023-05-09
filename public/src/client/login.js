@@ -1,15 +1,15 @@
 'use strict';
 
 
-define('forum/login', ['jquery-form'], function () {
-	var	Login = {
+define('forum/login', ['hooks', 'translator', 'jquery-form'], function (hooks, translator) {
+	const Login = {
 		_capsState: false,
 	};
 
 	Login.init = function () {
-		var errorEl = $('#login-error-notify');
-		var submitEl = $('#login');
-		var formEl = $('#login-form');
+		const errorEl = $('#login-error-notify');
+		const submitEl = $('#login');
+		const formEl = $('#login-form');
 
 		submitEl.on('click', function (e) {
 			e.preventDefault();
@@ -26,7 +26,7 @@ define('forum/login', ['jquery-form'], function () {
 
 				submitEl.addClass('disabled');
 
-				$(window).trigger('action:app.login');
+				hooks.fire('action:app.login');
 				formEl.ajaxSubmit({
 					headers: {
 						'x-csrf-token': config.csrf_token,
@@ -35,26 +35,32 @@ define('forum/login', ['jquery-form'], function () {
 						app.flags._login = true;
 					},
 					success: function (data) {
-						$(window).trigger('action:app.loggedIn', data);
-						var pathname = utils.urlToLocation(data.next).pathname;
-						var params = utils.params({ url: data.next });
+						hooks.fire('action:app.loggedIn', data);
+						const pathname = utils.urlToLocation(data.next).pathname;
+						const params = utils.params({ url: data.next });
 						params.loggedin = true;
-						var qs = decodeURIComponent($.param(params));
+						delete params.register; // clear register message incase it exists
+						const qs = decodeURIComponent($.param(params));
 
 						window.location.href = pathname + '?' + qs;
 					},
 					error: function (data) {
+						let message = data.responseText;
+						const errInfo = data.responseJSON;
 						if (data.status === 403 && data.responseText === 'Forbidden') {
 							window.location.href = config.relative_path + '/login?error=csrf-invalid';
-						} else {
-							errorEl.find('p').translateText(data.responseText);
-							errorEl.show();
-							submitEl.removeClass('disabled');
+						} else if (errInfo && errInfo.hasOwnProperty('banned_until')) {
+							message = errInfo.banned_until ?
+								translator.compile('error:user-banned-reason-until', (new Date(errInfo.banned_until).toLocaleString()), errInfo.reason) :
+								'[[error:user-banned-reason, ' + errInfo.reason + ']]';
+						}
+						errorEl.find('p').translateText(message);
+						errorEl.show();
+						submitEl.removeClass('disabled');
 
-							// Select the entire password if that field has focus
-							if ($('#password:focus').length) {
-								$('#password').select();
-							}
+						// Select the entire password if that field has focus
+						if ($('#password:focus').length) {
+							$('#password').select();
 						}
 					},
 				});

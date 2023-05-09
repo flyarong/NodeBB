@@ -1,7 +1,12 @@
 'use strict';
 
+const _ = require('lodash');
+
 const user = require('../user');
+const groups = require('../groups');
+const meta = require('../meta');
 const posts = require('../posts');
+const db = require('../database');
 const flags = require('../flags');
 const analytics = require('../analytics');
 const plugins = require('../plugins');
@@ -13,7 +18,7 @@ const helpers = require('./helpers');
 const modsController = module.exports;
 modsController.flags = {};
 
-modsController.flags.list = async function (req, res, next) {
+modsController.flags.list = async function (req, res) {
 	const validFilters = ['assignee', 'state', 'reporterId', 'type', 'targetUid', 'cid', 'quick', 'page', 'perPage'];
 	const validSorts = ['newest', 'oldest', 'reports', 'upvotes', 'downvotes', 'replies'];
 
@@ -27,7 +32,7 @@ modsController.flags.list = async function (req, res, next) {
 	let [,, { filters }] = results;
 
 	if (!(isAdminOrGlobalMod || !!moderatedCids.length)) {
-		return next(new Error('[[error:no-privileges]]'));
+		return helpers.notAllowed(req, res);
 	}
 
 	if (!isAdminOrGlobalMod && moderatedCids.length) {
@@ -36,9 +41,11 @@ modsController.flags.list = async function (req, res, next) {
 
 	// Parse query string params for filters, eliminate non-valid filters
 	filters = filters.reduce((memo, cur) => {
-		if (req.query.hasOwnProperty(cur) && typeof req.query[cur] === 'string') {
-			if (req.query[cur].trim() !== '') {
+		if (req.query.hasOwnProperty(cur)) {
+			if (typeof req.query[cur] === 'string' && req.query[cur].trim() !== '') {
 				memo[cur] = req.query[cur].trim();
+			} else if (Array.isArray(req.query[cur]) && req.query[cur].length) {
+				memo[cur] = req.query[cur];
 			}
 		}
 
@@ -89,10 +96,27 @@ modsController.flags.list = async function (req, res, next) {
 		helpers.getSelectedCategory(filters.cid),
 	]);
 
+	// Send back information for userFilter module
+	const selected = {};
+	await Promise.all(['assignee', 'reporterId', 'targetUid'].map(async (filter) => {
+		let uids = filters[filter];
+		if (!uids) {
+			selected[filter] = [];
+			return;
+		}
+		if (!Array.isArray(uids)) {
+			uids = [uids];
+		}
+
+		selected[filter] = await user.getUsersFields(uids, ['username', 'userslug', 'picture']);
+	}));
+
 	res.render('flags/list', {
 		flags: flagsData.flags,
+		count: flagsData.count,
 		analytics: analyticsData,
 		selectedCategory: selectData.selectedCategory,
+		selected,
 		hasFilter: hasFilter,
 		filters: filters,
 		expanded: !!(filters.assignee || filters.reporterId || filters.targetUid),
@@ -108,16 +132,53 @@ modsController.flags.detail = async function (req, res, next) {
 		isAdminOrGlobalMod: user.isAdminOrGlobalMod(req.uid),
 		moderatedCids: user.getModeratedCids(req.uid),
 		flagData: flags.get(req.params.flagId),
-		assignees: user.getAdminsandGlobalModsandModerators(),
 		privileges: Promise.all(['global', 'admin'].map(async type => privileges[type].get(req.uid))),
 	});
 	results.privileges = { ...results.privileges[0], ...results.privileges[1] };
-
-	if (!results.flagData) {
-		return next(new Error('[[error:invalid-data]]'));
-	} else if (!(results.isAdminOrGlobalMod || !!results.moderatedCids.length)) {
-		return next(new Error('[[error:no-privileges]]'));
+	if (!results.flagData || (!(results.isAdminOrGlobalMod || !!results.moderatedCids.length))) {
+		return next(); // 404
 	}
+
+	// extra checks for plain moderators
+	if (!results.isAdminOrGlobalMod) {
+		if (results.flagData.type === 'user') {
+			return next();
+		}
+		if (results.flagData.type === 'post') {
+			const isFlagInModeratedCids = await db.isMemberOfSortedSets(
+				results.moderatedCids.map(cid => `flags:byCid:${cid}`),
+				results.flagData.flagId
+			);
+			if (!isFlagInModeratedCids.includes(true)) {
+				return next();
+			}
+		}
+	}
+
+
+	async function getAssignees(flagData) {
+		let uids = [];
+		const [admins, globalMods] = await Promise.all([
+			groups.getMembers('administrators', 0, -1),
+			groups.getMembers('Global Moderators', 0, -1),
+		]);
+		if (flagData.type === 'user') {
+			uids = await privileges.admin.getUidsWithPrivilege('admin:users');
+			uids = _.uniq(admins.concat(uids));
+		} else if (flagData.type === 'post') {
+			const cid = await posts.getCidByPid(flagData.targetId);
+			uids = _.uniq(admins.concat(globalMods));
+			if (cid) {
+				const modUids = (await privileges.categories.getUidsWithPrivilege([cid], 'moderate'))[0];
+				uids = _.uniq(uids.concat(modUids));
+			}
+		}
+		const userData = await user.getUsersData(uids);
+		return userData.filter(u => u && u.userslug);
+	}
+
+	const assignees = await getAssignees(results.flagData);
+	results.flagData.history = await flags.getHistory(req.params.flagId);
 
 	if (results.flagData.type === 'user') {
 		results.flagData.type_path = 'uid';
@@ -126,7 +187,7 @@ modsController.flags.detail = async function (req, res, next) {
 	}
 
 	res.render('flags/detail', Object.assign(results.flagData, {
-		assignees: results.assignees,
+		assignees: assignees,
 		type_bool: ['post', 'user', 'empty'].reduce((memo, cur) => {
 			if (cur !== 'empty') {
 				memo[cur] = results.flagData.type === cur && (
@@ -139,6 +200,7 @@ modsController.flags.detail = async function (req, res, next) {
 
 			return memo;
 		}, {}),
+		states: Object.fromEntries(flags._states),
 		title: `[[pages:flag-details, ${req.params.flagId}]]`,
 		privileges: results.privileges,
 		breadcrumbs: helpers.buildBreadcrumbs([
@@ -149,29 +211,33 @@ modsController.flags.detail = async function (req, res, next) {
 };
 
 modsController.postQueue = async function (req, res, next) {
-	// Admins, global mods, and individual mods only
-	const isPrivileged = await user.isPrivileged(req.uid);
-	if (!isPrivileged) {
+	if (!req.loggedIn) {
 		return next();
 	}
+	const { id } = req.params;
 	const { cid } = req.query;
 	const page = parseInt(req.query.page, 10) || 1;
 	const postsPerPage = 20;
 
-	let postData = await posts.getQueuedPosts();
-	const [isAdminOrGlobalMod, moderatedCids, categoriesData] = await Promise.all([
-		user.isAdminOrGlobalMod(req.uid),
+	let postData = await posts.getQueuedPosts({ id: id });
+	let [isAdmin, isGlobalMod, moderatedCids, categoriesData, _privileges] = await Promise.all([
+		user.isAdministrator(req.uid),
+		user.isGlobalModerator(req.uid),
 		user.getModeratedCids(req.uid),
 		helpers.getSelectedCategory(cid),
+		Promise.all(['global', 'admin'].map(async type => privileges[type].get(req.uid))),
 	]);
+	_privileges = { ..._privileges[0], ..._privileges[1] };
 
-	if (cid && !moderatedCids.includes(String(cid)) && !isAdminOrGlobalMod) {
-		return next();
-	}
-
-	postData = postData.filter(p => p &&
-		(!categoriesData.selectedCids.length || categoriesData.selectedCids.includes(p.category.cid)) &&
-		(isAdminOrGlobalMod || moderatedCids.includes(String(p.category.cid))));
+	postData = postData
+		.filter(p => p &&
+			(!categoriesData.selectedCids.length || categoriesData.selectedCids.includes(p.category.cid)) &&
+			(isAdmin || isGlobalMod || moderatedCids.includes(Number(p.category.cid)) || req.uid === p.user.uid))
+		.map((post) => {
+			const isSelf = post.user.uid === req.uid;
+			post.canAccept = !isSelf && (isAdmin || isGlobalMod || !!moderatedCids.length);
+			return post;
+		});
 
 	({ posts: postData } = await plugins.hooks.fire('filter:post-queue.get', {
 		posts: postData,
@@ -182,13 +248,22 @@ modsController.postQueue = async function (req, res, next) {
 	const start = (page - 1) * postsPerPage;
 	const stop = start + postsPerPage - 1;
 	postData = postData.slice(start, stop + 1);
-
+	const crumbs = [{ text: '[[pages:post-queue]]', url: id ? '/post-queue' : undefined }];
+	if (id && postData.length) {
+		const text = postData[0].data.tid ? '[[post-queue:reply]]' : '[[post-queue:topic]]';
+		crumbs.push({ text: text });
+	}
 	res.render('post-queue', {
 		title: '[[pages:post-queue]]',
 		posts: postData,
+		isAdmin: isAdmin,
+		canAccept: isAdmin || isGlobalMod,
 		...categoriesData,
 		allCategoriesUrl: `post-queue${helpers.buildQueryString(req.query, 'cid', '')}`,
 		pagination: pagination.create(page, pageCount),
-		breadcrumbs: helpers.buildBreadcrumbs([{ text: '[[pages:post-queue]]' }]),
+		breadcrumbs: helpers.buildBreadcrumbs(crumbs),
+		enabled: meta.config.postQueue,
+		singlePost: !!id,
+		privileges: _privileges,
 	});
 };

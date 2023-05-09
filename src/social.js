@@ -1,5 +1,6 @@
 'use strict';
 
+const _ = require('lodash');
 const plugins = require('./plugins');
 const db = require('./database');
 
@@ -9,7 +10,7 @@ social.postSharing = null;
 
 social.getPostSharing = async function () {
 	if (social.postSharing) {
-		return social.postSharing;
+		return _.cloneDeep(social.postSharing);
 	}
 
 	let networks = [
@@ -31,7 +32,7 @@ social.getPostSharing = async function () {
 	});
 
 	social.postSharing = networks;
-	return networks;
+	return _.cloneDeep(networks);
 };
 
 social.getActivePostSharing = async function () {
@@ -40,12 +41,12 @@ social.getActivePostSharing = async function () {
 };
 
 social.setActivePostSharingNetworks = async function (networkIDs) {
+	social.postSharing = null;
 	await db.delete('social:posts.activated');
 	if (!networkIDs.length) {
 		return;
 	}
 	await db.setAdd('social:posts.activated', networkIDs);
-	social.postSharing = null;
 };
 
 require('./promisify')(social);

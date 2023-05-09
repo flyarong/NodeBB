@@ -1,6 +1,7 @@
 'use strict';
 
 const _ = require('lodash');
+const chalk = require('chalk');
 
 const aliases = {
 	'plugin static dirs': ['staticdirs'],
@@ -9,7 +10,7 @@ const aliases = {
 	'admin js bundle': ['adminjs', 'adminscript', 'adminscripts'],
 	javascript: ['js'],
 	'client side styles': [
-		'clientcss', 'clientless', 'clientstyles', 'clientstyle',
+		'clientcss', 'clientscss', 'clientstyles', 'clientstyle',
 	],
 	'admin control panel styles': [
 		'admincss', 'adminless', 'adminstyles', 'adminstyle', 'acpcss', 'acpless', 'acpstyles', 'acpstyle',
@@ -30,12 +31,12 @@ function buildTargets() {
 		}
 
 		return [name, arr.join(', ')];
-	}).map(tuple => `     ${_.padEnd(`"${tuple[0]}"`, length + 2).magenta}  |  ${tuple[1]}`).join('\n');
-	console.log(
-		`\n\n  Build targets:\n${
-			(`\n     ${_.padEnd('Target', length + 2)}  |  Aliases`).green
-		}${'\n     ------------------------------------------------------\n'.blue
-		}${output}\n`
+	}).map(tuple => `     ${chalk.magenta(_.padEnd(`"${tuple[0]}"`, length + 2))}  |  ${tuple[1]}`).join('\n');
+	process.stdout.write(
+		'\n\n  Build targets:\n' +
+		`${chalk.green(`\n     ${_.padEnd('Target', length + 2)}  |  Aliases`)}` +
+		`${chalk.blue('\n     ------------------------------------------------------\n')}` +
+		`${output}\n\n`
 	);
 }
 

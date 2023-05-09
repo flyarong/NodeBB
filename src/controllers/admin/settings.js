@@ -1,5 +1,7 @@
 'use strict';
 
+const validator = require('validator');
+
 const meta = require('../../meta');
 const emailer = require('../../emailer');
 const notifications = require('../../notifications');
@@ -7,9 +9,10 @@ const groups = require('../../groups');
 const languages = require('../../languages');
 const navigationAdmin = require('../../navigation/admin');
 const social = require('../../social');
+const api = require('../../api');
 
 const helpers = require('../helpers');
-const translator = require('../../../public/src/modules/translator');
+const translator = require('../../translator');
 
 const settingsController = module.exports;
 
@@ -46,6 +49,13 @@ settingsController.post = async (req, res) => {
 	});
 };
 
+settingsController.advanced = async (req, res) => {
+	const groupData = await groups.getNonPrivilegeGroups('groups:createtime', 0, -1);
+	res.render('admin/settings/advanced', {
+		groupsExemptFromMaintenanceMode: groupData,
+	});
+};
+
 settingsController.languages = async function (req, res) {
 	const languageData = await languages.list();
 	languageData.forEach((language) => {
@@ -72,6 +82,7 @@ settingsController.navigation = async function (req, res) {
 		enabled.selected = index === 0;
 		enabled.title = translator.escape(enabled.title);
 		enabled.text = translator.escape(enabled.text);
+		enabled.dropdownContent = translator.escape(validator.escape(String(enabled.dropdownContent || '')));
 		enabled.groups = admin.groups.map(group => ({
 			displayName: group.displayName,
 			selected: enabled.groups.includes(group.name),
@@ -97,4 +108,17 @@ settingsController.social = async function (req, res) {
 	res.render('admin/settings/social', {
 		posts: posts,
 	});
+};
+
+settingsController.api = async (req, res) => {
+	const { tokens } = await meta.settings.get('core.api');
+	const scores = await api.utils.getLastSeen(tokens.map(t => t.token));
+
+	const [lastSeen, lastSeenISO] = tokens.reduce((memo, cur, idx) => {
+		memo[0][cur.token] = scores[idx];
+		memo[1][cur.token] = new Date(scores[idx]).toISOString();
+		return memo;
+	}, [{}, {}]);
+
+	res.render('admin/settings/api', { lastSeen, lastSeenISO });
 };

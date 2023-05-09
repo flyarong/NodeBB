@@ -46,6 +46,9 @@ postsAPI.edit = async function (caller, data) {
 	if (!data || !data.pid || (meta.config.minimumPostLength !== 0 && !data.content)) {
 		throw new Error('[[error:invalid-data]]');
 	}
+	if (!caller.uid) {
+		throw new Error('[[error:not-logged-in]]');
+	}
 	// Trim and remove HTML (latter for composers that send in HTML, like redactor)
 	const contentLen = utils.stripHTMLTags(data.content).trim().length;
 
@@ -67,6 +70,18 @@ postsAPI.edit = async function (caller, data) {
 	if (editResult.topic.isMainPost) {
 		await topics.thumbs.migrate(data.uuid, editResult.topic.tid);
 	}
+	const selfPost = parseInt(caller.uid, 10) === parseInt(editResult.post.uid, 10);
+	if (!selfPost && editResult.post.changed) {
+		await events.log({
+			type: `post-edit`,
+			uid: caller.uid,
+			ip: caller.ip,
+			pid: editResult.post.pid,
+			oldContent: editResult.post.oldContent,
+			newContent: editResult.post.newContent,
+		});
+	}
+
 	if (editResult.topic.renamed) {
 		await events.log({
 			type: 'topic-rename',
@@ -94,7 +109,7 @@ postsAPI.edit = async function (caller, data) {
 	]);
 
 	const uids = _.uniq(_.flatten(memberData).concat(String(caller.uid)));
-	uids.forEach(uid =>	websockets.in(`uid_${uid}`).emit('event:post_edited', editResult));
+	uids.forEach(uid => websockets.in(`uid_${uid}`).emit('event:post_edited', editResult));
 	return returnData;
 };
 
@@ -205,6 +220,12 @@ async function isMainAndLastPost(pid) {
 }
 
 postsAPI.move = async function (caller, data) {
+	if (!caller.uid) {
+		throw new Error('[[error:not-logged-in]]');
+	}
+	if (!data || !data.pid || !data.tid) {
+		throw new Error('[[error:invalid-data]]');
+	}
 	const canMove = await Promise.all([
 		privileges.topics.isAdminOrMod(data.tid, caller.uid),
 		privileges.posts.canMove(data.pid, caller.uid),
@@ -218,6 +239,13 @@ postsAPI.move = async function (caller, data) {
 	const [postDeleted, topicDeleted] = await Promise.all([
 		posts.getPostField(data.pid, 'deleted'),
 		topics.getTopicField(data.tid, 'deleted'),
+		await events.log({
+			type: `post-move`,
+			uid: caller.uid,
+			ip: caller.ip,
+			pid: data.pid,
+			toTid: data.tid,
+		}),
 	]);
 
 	if (!postDeleted && !topicDeleted) {
@@ -304,4 +332,18 @@ postsAPI.restoreDiff = async (caller, data) => {
 
 	const edit = await posts.diffs.restore(data.pid, data.since, caller.uid, apiHelpers.buildReqObject(caller));
 	websockets.in(`topic_${edit.topic.tid}`).emit('event:post_edited', edit);
+};
+
+postsAPI.deleteDiff = async (caller, { pid, timestamp }) => {
+	const cid = await posts.getCidByPid(pid);
+	const [isAdmin, isModerator] = await Promise.all([
+		privileges.users.isAdministrator(caller.uid),
+		privileges.users.isModerator(caller.uid, cid),
+	]);
+
+	if (!(isAdmin || isModerator)) {
+		throw new Error('[[error:no-privileges]]');
+	}
+
+	await posts.diffs.delete(pid, timestamp, caller.uid);
 };

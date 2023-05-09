@@ -1,5 +1,7 @@
 'use strict';
 
+const winston = require('winston');
+
 const user = require('../user');
 const notifications = require('../notifications');
 const sockets = require('../socket.io');
@@ -7,7 +9,7 @@ const plugins = require('../plugins');
 const meta = require('../meta');
 
 module.exports = function (Messaging) {
-	Messaging.notifyQueue = {};	// Only used to notify a user of a new chat message, see Messaging.notifyUser
+	Messaging.notifyQueue = {}; // Only used to notify a user of a new chat message, see Messaging.notifyUser
 
 	Messaging.notifyUsersInRoom = async (fromUid, roomId, messageObj) => {
 		let uids = await Messaging.getUidsInRoom(roomId, 0, -1);
@@ -45,23 +47,30 @@ module.exports = function (Messaging) {
 			Messaging.notifyQueue[`${fromUid}:${roomId}`] = queueObj;
 		}
 
-		queueObj.timeout = setTimeout(() => {
-			sendNotifications(fromUid, uids, roomId, queueObj.message);
-		}, (parseFloat(meta.config.notificationSendDelay) || 60) * 1000);
+		queueObj.timeout = setTimeout(async () => {
+			try {
+				await sendNotifications(fromUid, uids, roomId, queueObj.message);
+			} catch (err) {
+				winston.error(`[messaging/notifications] Unabled to send notification\n${err.stack}`);
+			}
+		}, meta.config.notificationSendDelay * 1000);
 	};
 
 	async function sendNotifications(fromuid, uids, roomId, messageObj) {
-		const isOnline = await user.isOnline(uids);
-		uids = uids.filter((uid, index) => !isOnline[index] && parseInt(fromuid, 10) !== parseInt(uid, 10));
+		const hasRead = await Messaging.hasRead(uids, roomId);
+		uids = uids.filter((uid, index) => !hasRead[index] && parseInt(fromuid, 10) !== parseInt(uid, 10));
 		if (!uids.length) {
+			delete Messaging.notifyQueue[`${fromuid}:${roomId}`];
 			return;
 		}
+
+		const { displayname } = messageObj.fromUser;
 
 		const isGroupChat = await Messaging.isGroupChat(roomId);
 		const notification = await notifications.create({
 			type: isGroupChat ? 'new-group-chat' : 'new-chat',
-			subject: `[[email:notif.chat.subject, ${messageObj.fromUser.username}]]`,
-			bodyShort: `[[notifications:new_message_from, ${messageObj.fromUser.username}]]`,
+			subject: `[[email:notif.chat.subject, ${displayname}]]`,
+			bodyShort: `[[notifications:new_message_from, ${displayname}]]`,
 			bodyLong: messageObj.content,
 			nid: `chat_${fromuid}_${roomId}`,
 			from: fromuid,

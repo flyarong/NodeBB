@@ -98,7 +98,7 @@ Groups.getGroups = async function (set, start, stop) {
 Groups.getGroupsAndMembers = async function (groupNames) {
 	const [groups, members] = await Promise.all([
 		Groups.getGroupsData(groupNames),
-		Groups.getMemberUsers(groupNames, 0, 3),
+		Groups.getMemberUsers(groupNames, 0, 9),
 	]);
 	groups.forEach((group, index) => {
 		if (group) {
@@ -123,8 +123,8 @@ Groups.get = async function (groupName, options) {
 	const [groupData, members, pending, invited, isMember, isPending, isInvited, isOwner] = await Promise.all([
 		Groups.getGroupData(groupName),
 		Groups.getOwnersAndMembers(groupName, options.uid, 0, stop),
-		Groups.getUsersFromSet(`group:${groupName}:pending`, ['username', 'userslug', 'picture']),
-		Groups.getUsersFromSet(`group:${groupName}:invited`, ['username', 'userslug', 'picture']),
+		Groups.getPending(groupName),
+		Groups.getInvites(groupName),
 		Groups.isMember(options.uid, groupName),
 		Groups.isPending(options.uid, groupName),
 		Groups.isInvited(options.uid, groupName),

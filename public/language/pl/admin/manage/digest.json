@@ -13,6 +13,7 @@
 	"resent-single": "Ręczne wysyłanie podsumowania zakończone",
 	"resent-day": "Codzienne podsumowanie",
 	"resent-week": "Tygodniowe podsumowanie",
+	"resent-biweek": "Dwutygodniowe podsumowanie ponownie wysłane",
 	"resent-month": "Miesięczne podsumowanie",
 	"null": "<em>Nigdy</em>",
 	"manual-run": "Włącz ręcznie podsumowania",

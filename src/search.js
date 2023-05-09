@@ -15,7 +15,6 @@ const search = module.exports;
 
 search.search = async function (data) {
 	const start = process.hrtime();
-	data.searchIn = data.searchIn || 'titlesposts';
 	data.sortBy = data.sortBy || 'relevance';
 
 	let result;
@@ -27,6 +26,10 @@ search.search = async function (data) {
 		result = await categories.search(data);
 	} else if (data.searchIn === 'tags') {
 		result = await topics.searchAndLoadTags(data);
+	} else if (data.searchIn) {
+		result = await plugins.hooks.fire('filter:search.searchIn', {
+			data,
+		});
 	} else {
 		throw new Error('[[error:unknown-search-filter]]');
 	}
@@ -45,24 +48,31 @@ async function searchInContent(data) {
 
 	async function doSearch(type, searchIn) {
 		if (searchIn.includes(data.searchIn)) {
-			return await plugins.hooks.fire('filter:search.query', {
+			const result = await plugins.hooks.fire('filter:search.query', {
 				index: type,
 				content: data.query,
 				matchWords: data.matchWords || 'all',
 				cid: searchCids,
 				uid: searchUids,
 				searchData: data,
+				ids: [],
 			});
+			return Array.isArray(result) ? result : result.ids;
 		}
 		return [];
 	}
-	const [pids, tids] = await Promise.all([
-		doSearch('post', ['posts', 'titlesposts']),
-		doSearch('topic', ['titles', 'titlesposts']),
-	]);
-
-	if (data.returnIds) {
-		return { pids: pids, tids: tids };
+	let pids = [];
+	let tids = [];
+	const inTopic = String(data.query || '').match(/^in:topic-([\d]+) /);
+	if (inTopic) {
+		const tid = inTopic[1];
+		const cleanedTerm = data.query.replace(inTopic[0], '');
+		pids = await topics.search(tid, cleanedTerm);
+	} else {
+		[pids, tids] = await Promise.all([
+			doSearch('post', ['posts', 'titlesposts']),
+			doSearch('topic', ['titles', 'titlesposts']),
+		]);
 	}
 
 	const mainPids = await topics.getMainPids(tids);
@@ -74,7 +84,17 @@ async function searchInContent(data) {
 
 	const metadata = await plugins.hooks.fire('filter:search.inContent', {
 		pids: allPids,
+		data: data,
 	});
+
+	if (data.returnIds) {
+		const mainPidsSet = new Set(mainPids);
+		const mainPidToTid = _.zipObject(mainPids, tids);
+		const pidsSet = new Set(pids);
+		const returnPids = allPids.filter(pid => pidsSet.has(pid));
+		const returnTids = allPids.filter(pid => mainPidsSet.has(pid)).map(pid => mainPidToTid[pid]);
+		return { pids: returnPids, tids: returnTids };
+	}
 
 	const itemsPerPage = Math.min(data.itemsPerPage || 10, 100);
 	const returnData = {
@@ -91,6 +111,7 @@ async function searchInContent(data) {
 	returnData.posts = await posts.getPostSummaryByPids(metadata.pids, data.uid, {});
 	await plugins.hooks.fire('filter:search.contentGetResult', { result: returnData, data: data });
 	delete metadata.pids;
+	delete metadata.data;
 	return Object.assign(returnData, metadata);
 }
 
@@ -155,18 +176,15 @@ async function getUsers(uids, data) {
 async function getTopics(tids, data) {
 	const topicsData = await topics.getTopicsData(tids);
 	const cids = _.uniq(topicsData.map(topic => topic && topic.cid));
-	const [categories, tags] = await Promise.all([
-		getCategories(cids, data),
-		getTags(tids, data),
-	]);
+	const categories = await getCategories(cids, data);
 
 	const cidToCategory = _.zipObject(cids, categories);
-	topicsData.forEach((topic, index) => {
+	topicsData.forEach((topic) => {
 		if (topic && categories && cidToCategory[topic.cid]) {
 			topic.category = cidToCategory[topic.cid];
 		}
-		if (topic && tags && tags[index]) {
-			topic.tags = tags[index];
+		if (topic && topic.tags) {
+			topic.tags = topic.tags.map(tag => tag.value);
 		}
 	});
 
@@ -184,13 +202,6 @@ async function getCategories(cids, data) {
 	}
 
 	return await db.getObjectsFields(cids.map(cid => `category:${cid}`), categoryFields);
-}
-
-async function getTags(tids, data) {
-	if (Array.isArray(data.hasTags) && data.hasTags.length) {
-		return await topics.getTopicsTags(tids);
-	}
-	return null;
 }
 
 function filterByPostcount(posts, postCount, repliesFilter) {
