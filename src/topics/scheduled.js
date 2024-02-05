@@ -8,6 +8,7 @@ const db = require('../database');
 const posts = require('../posts');
 const socketHelpers = require('../socket.io/helpers');
 const topics = require('./index');
+const groups = require('../groups');
 const user = require('../user');
 
 const Scheduled = module.exports;
@@ -25,6 +26,11 @@ Scheduled.handleExpired = async function () {
 		return;
 	}
 
+	await postTids(tids);
+	await db.sortedSetsRemoveRangeByScore([`topics:scheduled`], '-inf', now);
+};
+
+async function postTids(tids) {
 	let topicsData = await topics.getTopicsData(tids);
 	// Filter deleted
 	topicsData = topicsData.filter(topicData => Boolean(topicData));
@@ -40,10 +46,10 @@ Scheduled.handleExpired = async function () {
 	await Promise.all([].concat(
 		sendNotifications(uids, topicsData),
 		updateUserLastposttimes(uids, topicsData),
+		updateGroupPosts(uids, topicsData),
 		...topicsData.map(topicData => unpin(topicData.tid, topicData)),
-		db.sortedSetsRemoveRangeByScore([`topics:scheduled`], '-inf', now)
 	));
-};
+}
 
 // topics/tools.js#pin/unpin would block non-admins/mods, thus the local versions
 Scheduled.pin = async function (tid, topicData) {
@@ -60,18 +66,27 @@ Scheduled.pin = async function (tid, topicData) {
 };
 
 Scheduled.reschedule = async function ({ cid, tid, timestamp, uid }) {
-	const mainPid = await topics.getTopicField(tid, 'mainPid');
-	await Promise.all([
-		db.sortedSetsAdd([
-			'topics:scheduled',
-			`uid:${uid}:topics`,
-			'topics:tid',
-			`cid:${cid}:uid:${uid}:tids`,
-		], timestamp, tid),
-		posts.setPostField(mainPid, 'timestamp', timestamp),
-		shiftPostTimes(tid, timestamp),
-	]);
-	return topics.updateLastPostTimeFromLastPid(tid);
+	if (timestamp < Date.now()) {
+		await postTids([tid]);
+	} else {
+		const mainPid = await topics.getTopicField(tid, 'mainPid');
+		await Promise.all([
+			db.sortedSetsAdd([
+				'topics:scheduled',
+				`uid:${uid}:topics`,
+				'topics:tid',
+				`cid:${cid}:uid:${uid}:tids`,
+			], timestamp, tid),
+			posts.setPostField(mainPid, 'timestamp', timestamp),
+			db.sortedSetsAdd([
+				'posts:pid',
+				`uid:${uid}:posts`,
+				`cid:${cid}:uid:${uid}:pids`,
+			], timestamp, mainPid),
+			shiftPostTimes(tid, timestamp),
+		]);
+		await topics.updateLastPostTimeFromLastPid(tid);
+	}
 };
 
 function unpin(tid, topicData) {
@@ -122,6 +137,16 @@ async function updateUserLastposttimes(uids, topicsData) {
 
 	const uidsToUpdate = uids.filter((uid, idx) => tstampByUid[uid] > lastposttimes[idx]);
 	return Promise.all(uidsToUpdate.map(uid => user.setUserField(uid, 'lastposttime', tstampByUid[uid])));
+}
+
+async function updateGroupPosts(uids, topicsData) {
+	const postsData = await posts.getPostsData(topicsData.map(t => t && t.mainPid));
+	await Promise.all(postsData.map(async (post, i) => {
+		if (topicsData[i]) {
+			post.cid = topicsData[i].cid;
+			await groups.onNewPostMade(post);
+		}
+	}));
 }
 
 async function shiftPostTimes(tid, timestamp) {

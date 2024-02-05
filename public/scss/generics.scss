@@ -23,7 +23,9 @@
 		display: block;
 	}
 }
-
+.dropdown-left .dropdown-menu {
+	--bs-position: start;
+}
 .dropdown-right .dropdown-menu {
 	--bs-position: end;
 }
@@ -68,16 +70,6 @@
 
 	&+.avatar {
 		display: none;
-	}
-}
-
-#crop-picture-modal {
-	#cropped-image {
-		max-width: 100%;
-	}
-
-	.cropper-container.cropper-bg {
-		max-width: 100%;
 	}
 }
 
@@ -137,6 +129,12 @@ blockquote {
 
 .border-muted {
 	border-color: $text-muted!important;
+}
+
+.hidden-empty {
+	&:empty {
+		display: none!important;
+	}
 }
 
 // some classes that are used commonly in themes from bs3

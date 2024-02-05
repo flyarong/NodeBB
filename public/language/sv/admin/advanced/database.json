@@ -5,7 +5,7 @@
 	"uptime-seconds": "Driftstid i sekunder",
 	"uptime-days": "Driftstid i dagar",
 
-	"mongo": "Mongo",
+	"mongo": "MongoDB",
 	"mongo.version": "MongoDB-version",
 	"mongo.storage-engine": "Lagringsmotor",
 	"mongo.collections": "Samlingar",
@@ -17,7 +17,7 @@
 	"mongo.file-size": "Filstorlek",
 	"mongo.resident-memory": "Resident Memory",
 	"mongo.virtual-memory": "Virtuellt minne",
-	"mongo.mapped-memory": "Mappat minne",
+	"mongo.mapped-memory": "Mapped Memory",
 	"mongo.bytes-in": "Bytes In",
 	"mongo.bytes-out": "Bytes Ut",
 	"mongo.num-requests": "Antal förfrågningar",

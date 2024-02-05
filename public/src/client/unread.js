@@ -2,8 +2,8 @@
 
 
 define('forum/unread', [
-	'forum/header/unread', 'topicSelect', 'components', 'topicList', 'categorySelector', 'alerts',
-], function (headerUnread, topicSelect, components, topicList, categorySelector, alerts) {
+	'forum/header/unread', 'topicSelect', 'components', 'topicList', 'categorySelector', 'alerts', 'api',
+], function (headerUnread, topicSelect, components, topicList, categorySelector, alerts, api) {
 	const Unread = {};
 
 	Unread.init = function () {
@@ -23,7 +23,7 @@ define('forum/unread', [
 					return alerts.error(err);
 				}
 
-				alerts.success('[[unread:topics_marked_as_read.success]]');
+				alerts.success('[[unread:topics-marked-as-read.success]]');
 
 				$('[component="category"]').empty();
 				$('[component="pagination"]').addClass('hidden');
@@ -37,11 +37,8 @@ define('forum/unread', [
 			if (!tids.length) {
 				return;
 			}
-			socket.emit('topics.markAsRead', tids, function (err) {
-				if (err) {
-					return alerts.error(err);
-				}
 
+			Promise.all(tids.map(async tid => api.put(`/topics/${tid}/read`))).then(() => {
 				doneRemovingTids(tids);
 			});
 		}
@@ -75,7 +72,7 @@ define('forum/unread', [
 					markCategoryRead(category.cid);
 				}
 			},
-			selectCategoryLabel: ajaxify.data.selectCategoryLabel || '[[unread:mark_as_read]]',
+			selectCategoryLabel: ajaxify.data.selectCategoryLabel || '[[unread:mark-as-read]]',
 			localCategories: [
 				{
 					cid: 'selected',
@@ -94,7 +91,7 @@ define('forum/unread', [
 	function doneRemovingTids(tids) {
 		removeTids(tids);
 
-		alerts.success('[[unread:topics_marked_as_read.success]]');
+		alerts.success('[[unread:topics-marked-as-read.success]]');
 
 		if (!$('[component="category"]').children().length) {
 			$('#category-no-topics').removeClass('hidden');

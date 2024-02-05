@@ -1,7 +1,6 @@
 'use strict';
 
 const assert = require('assert');
-const async = require('async');
 const fs = require('fs');
 const path = require('path');
 const nconf = require('nconf');
@@ -10,6 +9,7 @@ const db = require('./mocks/databasemock');
 const helpers = require('./helpers');
 const Groups = require('../src/groups');
 const User = require('../src/user');
+const plugins = require('../src/plugins');
 const utils = require('../src/utils');
 const socketGroups = require('../src/socket.io/groups');
 const apiGroups = require('../src/api/groups');
@@ -21,6 +21,12 @@ describe('Groups', () => {
 	let adminUid;
 	let testUid;
 	before(async () => {
+		// Attach an emailer hook so related requests do not error
+		plugins.hooks.register('emailer-test', {
+			hook: 'static:email.send',
+			method: dummyEmailerHook,
+		});
+
 		const navData = require('../install/data/navigation.json');
 		await navigation.save(navData);
 
@@ -75,6 +81,14 @@ describe('Groups', () => {
 			password: '123456',
 		});
 		await Groups.join('administrators', adminUid);
+	});
+
+	async function dummyEmailerHook(data) {
+		// pretend to handle sending emails
+	}
+
+	after(async () => {
+		plugins.hooks.unregister('emailer-test', 'static:email.send');
 	});
 
 	describe('.list()', () => {
@@ -161,41 +175,20 @@ describe('Groups', () => {
 			});
 		});
 
-		it('should return all users if no query', (done) => {
-			function createAndJoinGroup(username, email, callback) {
-				async.waterfall([
-					function (next) {
-						User.create({ username: username, email: email }, next);
-					},
-					function (uid, next) {
-						Groups.join('Test', uid, next);
-					},
-				], callback);
+		it('should return all users if no query', async () => {
+			async function createAndJoinGroup(username, email) {
+				const uid = await User.create({ username: username, email: email });
+				await Groups.join('Test', uid);
 			}
-			async.series([
-				function (next) {
-					createAndJoinGroup('newuser', 'newuser@b.com', next);
-				},
-				function (next) {
-					createAndJoinGroup('bob', 'bob@b.com', next);
-				},
-			], (err) => {
-				assert.ifError(err);
-
-				socketGroups.searchMembers({ uid: adminUid }, { groupName: 'Test', query: '' }, (err, data) => {
-					assert.ifError(err);
-					assert.equal(data.users.length, 3);
-					done();
-				});
-			});
+			await createAndJoinGroup('newuser', 'newuser@b.com');
+			await createAndJoinGroup('bob', 'bob@b.com');
+			const { users } = await apiGroups.listMembers({ uid: adminUid }, { slug: 'test', query: '' });
+			assert.equal(users.length, 3);
 		});
 
-		it('should search group members', (done) => {
-			socketGroups.searchMembers({ uid: adminUid }, { groupName: 'Test', query: 'test' }, (err, data) => {
-				assert.ifError(err);
-				assert.strictEqual('testuser', data.users[0].username);
-				done();
-			});
+		it('should search group members', async () => {
+			const { users } = await apiGroups.listMembers({ uid: adminUid }, { slug: 'test', query: 'test' });
+			assert.strictEqual('testuser', users[0].username);
 		});
 
 		it('should not return hidden groups', async () => {
@@ -209,36 +202,54 @@ describe('Groups', () => {
 	});
 
 	describe('.isMember()', () => {
-		it('should return boolean true when a user is in a group', (done) => {
-			Groups.isMember(1, 'Test', (err, isMember) => {
-				assert.ifError(err);
-				assert.strictEqual(isMember, true);
-				done();
-			});
+		it('should return boolean true when a user is in a group', async () => {
+			const isMember = await Groups.isMember(1, 'Test');
+			assert.strictEqual(isMember, true);
 		});
 
-		it('should return boolean false when a user is not in a group', (done) => {
-			Groups.isMember(2, 'Test', (err, isMember) => {
-				assert.ifError(err);
-				assert.strictEqual(isMember, false);
-				done();
-			});
+		it('should return boolean false when a user is not in a group', async () => {
+			const isMember = await Groups.isMember(2, 'Test');
+			assert.strictEqual(isMember, false);
 		});
 
-		it('should return true for uid 0 and guests group', (done) => {
-			Groups.isMembers([1, 0], 'guests', (err, isMembers) => {
-				assert.ifError(err);
-				assert.deepStrictEqual(isMembers, [false, true]);
-				done();
-			});
+		it('should return true for uid 0 and guests group', async () => {
+			const isMember = await Groups.isMember(0, 'guests');
+			assert.strictEqual(isMember, true);
 		});
 
-		it('should return true for uid 0 and guests group', (done) => {
-			Groups.isMemberOfGroups(0, ['guests', 'registered-users'], (err, isMembers) => {
-				assert.ifError(err);
-				assert.deepStrictEqual(isMembers, [true, false]);
-				done();
-			});
+		it('should return false for uid 0 and spiders group', async () => {
+			const isMember = await Groups.isMember(0, 'spiders');
+			assert.strictEqual(isMember, false);
+		});
+
+		it('should return true for uid -1 and spiders group', async () => {
+			const isMember = await Groups.isMember(-1, 'spiders');
+			assert.strictEqual(isMember, true);
+		});
+
+		it('should return false for uid -1 and guests group', async () => {
+			const isMember = await Groups.isMember(-1, 'guests');
+			assert.strictEqual(isMember, false);
+		});
+
+		it('should return true for uid 0, false for uid -1 with guests group', async () => {
+			const isMembers = await Groups.isMembers([1, 0, -1], 'guests');
+			assert.deepStrictEqual(isMembers, [false, true, false]);
+		});
+
+		it('should return false for uid 0, true for uid -1 with spiders group', async () => {
+			const isMembers = await Groups.isMembers([1, 0, -1], 'spiders');
+			assert.deepStrictEqual(isMembers, [false, false, true]);
+		});
+
+		it('should return true for uid 0 and guests group', async () => {
+			const isMembers = await Groups.isMemberOfGroups(0, ['guests', 'registered-users', 'spiders']);
+			assert.deepStrictEqual(isMembers, [true, false, false]);
+		});
+
+		it('should return true for uid -1 and spiders group', async () => {
+			const isMembers = await Groups.isMemberOfGroups(-1, ['guests', 'registered-users', 'spiders']);
+			assert.deepStrictEqual(isMembers, [false, false, true]);
 		});
 	});
 
@@ -406,16 +417,12 @@ describe('Groups', () => {
 	});
 
 	describe('.hide()', () => {
-		it('should mark the group as hidden', (done) => {
-			Groups.hide('foo', (err) => {
-				assert.ifError(err);
-
-				Groups.get('foo', {}, (err, groupObj) => {
-					assert.ifError(err);
-					assert.strictEqual(1, groupObj.hidden);
-					done();
-				});
-			});
+		it('should mark the group as hidden', async () => {
+			await Groups.hide('foo');
+			const groupObj = await Groups.get('foo', {});
+			assert.strictEqual(1, groupObj.hidden);
+			const isMember = await db.isSortedSetMember('groups:visible:createtime', 'foo');
+			assert.strictEqual(isMember, false);
 		});
 	});
 
@@ -570,37 +577,20 @@ describe('Groups', () => {
 			});
 		});
 
-		it('should remove group from privilege groups', (done) => {
+		it('should remove group from privilege groups', async () => {
 			const privileges = require('../src/privileges');
 			const cid = 1;
 			const groupName = '1';
 			const uid = 1;
-			async.waterfall([
-				function (next) {
-					Groups.create({ name: groupName }, next);
-				},
-				function (groupData, next) {
-					privileges.categories.give(['groups:topics:create'], cid, groupName, next);
-				},
-				function (next) {
-					Groups.isMember(groupName, 'cid:1:privileges:groups:topics:create', next);
-				},
-				function (isMember, next) {
-					assert(isMember);
-					Groups.destroy(groupName, next);
-				},
-				function (next) {
-					Groups.isMember(groupName, 'cid:1:privileges:groups:topics:create', next);
-				},
-				function (isMember, next) {
-					assert(!isMember);
-					Groups.isMember(uid, 'registered-users', next);
-				},
-				function (isMember, next) {
-					assert(isMember);
-					next();
-				},
-			], done);
+			await Groups.create({ name: groupName });
+			await privileges.categories.give(['groups:topics:create'], cid, groupName);
+			let isMember = await Groups.isMember(groupName, 'cid:1:privileges:groups:topics:create');
+			assert(isMember);
+			await Groups.destroy(groupName);
+			isMember = await Groups.isMember(groupName, 'cid:1:privileges:groups:topics:create');
+			assert(!isMember);
+			isMember = await Groups.isMember(uid, 'registered-users');
+			assert(isMember);
 		});
 	});
 
@@ -737,7 +727,10 @@ describe('Groups', () => {
 			const uid1 = await User.create({ username: utils.generateUUID().slice(0, 8) });
 			const uid2 = await User.create({ username: utils.generateUUID().slice(0, 8) });
 
-			assert.rejects(apiGroups.join({ uid: uid1 }, { slug: 'test', uid: uid2 }, '[[error:not-allowed]]'));
+			await assert.rejects(
+				apiGroups.join({ uid: uid1 }, { slug: 'test', uid: uid2 }),
+				{ message: '[[error:not-allowed]]' }
+			);
 		});
 
 		it('should allow admins to join private groups', async () => {
@@ -762,54 +755,23 @@ describe('Groups', () => {
 	});
 
 	describe('.leaveAllGroups()', () => {
-		it('should remove a user from all groups', (done) => {
-			Groups.leaveAllGroups(testUid, (err) => {
-				assert.ifError(err);
-
-				const groups = ['Test', 'Hidden'];
-				async.every(groups, (group, next) => {
-					Groups.isMember(testUid, group, (err, isMember) => {
-						next(err, !isMember);
-					});
-				}, (err, result) => {
-					assert.ifError(err);
-					assert(result);
-
-					done();
-				});
-			});
+		it('should remove a user from all groups', async () => {
+			await Groups.leaveAllGroups(testUid);
+			const groups = ['Test', 'Hidden'];
+			const isMembers = await Groups.isMemberOfGroups(testUid, groups);
+			assert(!isMembers.includes(true));
 		});
 	});
 
 	describe('.show()', () => {
-		it('should make a group visible', (done) => {
-			Groups.show('Test', function (err) {
-				assert.ifError(err);
-				assert.equal(arguments.length, 1);
-				db.isSortedSetMember('groups:visible:createtime', 'Test', (err, isMember) => {
-					assert.ifError(err);
-					assert.strictEqual(isMember, true);
-					done();
-				});
-			});
+		it('should make a group visible', async () => {
+			await Groups.show('Test');
+			const isMember = await db.isSortedSetMember('groups:visible:createtime', 'Test');
+			assert.strictEqual(isMember, true);
 		});
 	});
 
-	describe('.hide()', () => {
-		it('should make a group hidden', (done) => {
-			Groups.hide('Test', function (err) {
-				assert.ifError(err);
-				assert.equal(arguments.length, 1);
-				db.isSortedSetMember('groups:visible:createtime', 'Test', (err, isMember) => {
-					assert.ifError(err);
-					assert.strictEqual(isMember, false);
-					done();
-				});
-			});
-		});
-	});
-
-	describe('socket methods', () => {
+	describe('socket/api methods', () => {
 		it('should error if data is null', (done) => {
 			socketGroups.before({ uid: 0 }, 'groups.join', null, (err) => {
 				assert.equal(err.message, '[[error:invalid-data]]');
@@ -923,7 +885,10 @@ describe('Groups', () => {
 		});
 
 		it('should error if not owner or admin', async () => {
-			assert.rejects(apiGroups.accept({ uid: 0 }, { slug: 'privatecanjoin', uid: testUid }), '[[error:no-privileges]]');
+			await assert.rejects(
+				apiGroups.accept({ uid: 0 }, { slug: 'privatecanjoin', uid: testUid }),
+				{ message: '[[error:no-privileges]]' }
+			);
 		});
 
 		it('should accept membership of user', async () => {
@@ -950,7 +915,10 @@ describe('Groups', () => {
 		});
 
 		it('should error if user is not invited', async () => {
-			assert.rejects(apiGroups.acceptInvite({ uid: adminUid }, { slug: 'privatecanjoin' }), '[[error:not-invited]]');
+			await assert.rejects(
+				apiGroups.acceptInvite({ uid: adminUid }, { slug: 'privatecanjoin', uid: adminUid }),
+				{ message: '[[error:not-invited]]' }
+			);
 		});
 
 		it('should accept invite', async () => {
@@ -982,7 +950,10 @@ describe('Groups', () => {
 		});
 
 		it('should fail to kick user with invalid data', async () => {
-			assert.rejects(apiGroups.leave({ uid: adminUid }, { slug: 'privatecanjoin', uid: 8721632 }), '[[error:group-not-member]]');
+			await assert.rejects(
+				apiGroups.leave({ uid: adminUid }, { slug: 'privatecanjoin', uid: 8721632 }),
+				{ message: '[[error:group-not-member]]' }
+			);
 		});
 
 		it('should kick user from group', async () => {
@@ -992,21 +963,17 @@ describe('Groups', () => {
 		});
 
 		it('should fail to create group with invalid data', async () => {
-			try {
-				await apiGroups.create({ uid: 0 }, {});
-				assert(false);
-			} catch (err) {
-				assert.equal(err.message, '[[error:no-privileges]]');
-			}
+			await assert.rejects(
+				apiGroups.create({ uid: 0 }, {}),
+				{ message: '[[error:no-privileges]]' }
+			);
 		});
 
 		it('should fail to create group if group creation is disabled', async () => {
-			try {
-				await apiGroups.create({ uid: testUid }, { name: 'avalidname' });
-				assert(false);
-			} catch (err) {
-				assert.equal(err.message, '[[error:no-privileges]]');
-			}
+			await assert.rejects(
+				apiGroups.create({ uid: testUid }, { name: 'avalidname' }),
+				{ message: '[[error:no-privileges]]' }
+			);
 		});
 
 		it('should fail to create group if name is privilege group', async () => {
@@ -1095,34 +1062,25 @@ describe('Groups', () => {
 			}
 		});
 
-		it('should fail to load more groups with invalid data', (done) => {
-			socketGroups.loadMore({ uid: adminUid }, {}, (err) => {
-				assert.equal(err.message, '[[error:invalid-data]]');
-				done();
-			});
+		it('should load initial set of groups when passed no arguments', async () => {
+			const { groups } = await apiGroups.list({ uid: adminUid }, {});
+			assert(Array.isArray(groups));
 		});
 
-		it('should load more groups', (done) => {
-			socketGroups.loadMore({ uid: adminUid }, { after: 0, sort: 'count' }, (err, data) => {
-				assert.ifError(err);
-				assert(Array.isArray(data.groups));
-				done();
-			});
+		it('should load more groups', async () => {
+			const { groups } = await apiGroups.list({ uid: adminUid }, { after: 0, sort: 'count' });
+			assert(Array.isArray(groups));
 		});
 
-		it('should fail to load more members with invalid data', (done) => {
-			socketGroups.loadMoreMembers({ uid: adminUid }, {}, (err) => {
-				assert.equal(err.message, '[[error:invalid-data]]');
-				done();
-			});
+		it('should load initial set of group members when passed no arguments', async () => {
+			const { users } = await apiGroups.listMembers({ uid: adminUid }, {});
+			assert(users);
+			assert(Array.isArray(users));
 		});
 
-		it('should load more members', (done) => {
-			socketGroups.loadMoreMembers({ uid: adminUid }, { after: 0, groupName: 'PrivateCanJoin' }, (err, data) => {
-				assert.ifError(err);
-				assert(Array.isArray(data.users));
-				done();
-			});
+		it('should load more members', async () => {
+			const { users } = await apiGroups.listMembers({ uid: adminUid }, { after: 0, groupName: 'PrivateCanJoin' });
+			assert(Array.isArray(users));
 		});
 	});
 
@@ -1198,21 +1156,30 @@ describe('Groups', () => {
 		});
 
 		it('should error if user is not member', async () => {
-			assert.rejects(apiGroups.leave({ uid: adminUid }, { uid: 3, slug: 'newgroup' }), '[[error:group-not-member]]');
+			await assert.rejects(
+				apiGroups.leave({ uid: adminUid }, { uid: 3, slug: 'newgroup' }),
+				{ message: '[[error:group-not-member]]' }
+			);
 		});
 
 		it('should fail if trying to remove someone else from group', async () => {
-			let err;
-			try {
-				await apiGroups.leave({ uid: testUid }, { uid: adminUid, slug: 'newgroup' });
-			} catch (_err) {
-				err = _err;
-			}
-			assert.strictEqual(err.message, '[[error:no-privileges]]');
+			await assert.rejects(
+				apiGroups.leave({ uid: testUid }, { uid: adminUid, slug: 'newgroup' }),
+				{ message: '[[error:no-privileges]]' },
+			);
 		});
 
-		it('should remove user from group', async () => {
+		it('should remove user from group if caller is admin', async () => {
 			await apiGroups.leave({ uid: adminUid }, { uid: testUid, slug: 'newgroup' });
+			const isMember = await Groups.isMember(testUid, 'newgroup');
+			assert(!isMember);
+		});
+
+		it('should remove user from group if caller is a global moderator', async () => {
+			const globalModUid = await User.getUidByUsername('glomod');
+			await apiGroups.join({ uid: adminUid }, { uid: testUid, slug: 'newgroup' });
+
+			await apiGroups.leave({ uid: globalModUid }, { uid: testUid, slug: 'newgroup' });
 			const isMember = await Groups.isMember(testUid, 'newgroup');
 			assert(!isMember);
 		});
@@ -1254,22 +1221,11 @@ describe('Groups', () => {
 		let regularUid;
 		const logoPath = path.join(__dirname, '../test/files/test.png');
 		const imagePath = path.join(__dirname, '../test/files/groupcover.png');
-		before((done) => {
-			User.create({ username: 'regularuser', password: '123456' }, (err, uid) => {
-				assert.ifError(err);
-				regularUid = uid;
-				async.series([
-					function (next) {
-						Groups.join('Test', adminUid, next);
-					},
-					function (next) {
-						Groups.join('Test', regularUid, next);
-					},
-					function (next) {
-						helpers.copyFile(logoPath, imagePath, next);
-					},
-				], done);
-			});
+		before(async () => {
+			regularUid = await User.create({ username: 'regularuser', password: '123456' });
+			await Groups.join('Test', adminUid);
+			await Groups.join('Test', regularUid);
+			await helpers.copyFile(logoPath, imagePath);
 		});
 
 		it('should fail if user is not logged in or not owner', (done) => {
@@ -1395,5 +1351,21 @@ describe('Groups', () => {
 			const groupData = await db.getObjectFields('group:Test', ['cover:url']);
 			assert(!groupData['cover:url']);
 		});
+	});
+
+	describe('isPrivilegeGroup', () => {
+		assert.strictEqual(Groups.isPrivilegeGroup('cid:1:privileges:topics:find'), true);
+		assert.strictEqual(Groups.isPrivilegeGroup('cid:1:privileges:groups:topics:find'), true);
+		assert.strictEqual(Groups.isPrivilegeGroup('cid:0:privileges:groups:search:users'), true);
+		assert.strictEqual(Groups.isPrivilegeGroup('cid:admin:privileges:admin:users'), true);
+		assert.strictEqual(Groups.isPrivilegeGroup('cid::privileges:admin:users'), false);
+		assert.strictEqual(Groups.isPrivilegeGroup('cid:string:privileges:admin:users'), false);
+		assert.strictEqual(Groups.isPrivilegeGroup('admin'), false);
+		assert.strictEqual(Groups.isPrivilegeGroup('registered-users'), false);
+		assert.strictEqual(Groups.isPrivilegeGroup(''), false);
+		assert.strictEqual(Groups.isPrivilegeGroup(null), false);
+		assert.strictEqual(Groups.isPrivilegeGroup(undefined), false);
+		assert.strictEqual(Groups.isPrivilegeGroup(false), false);
+		assert.strictEqual(Groups.isPrivilegeGroup(true), false);
 	});
 });

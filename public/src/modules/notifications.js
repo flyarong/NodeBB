@@ -74,11 +74,11 @@ define('notifications', [
 	Notifications.handleUnreadButton = function (notifList) {
 		notifList.on('click', '.mark-read', function () {
 			const $this = $(this);
-			const liEl = $this.parents('li[data-nid]');
-			const unread = liEl.hasClass('unread');
-			const nid = liEl.attr('data-nid');
+			const notifEl = $this.parents('[data-nid]');
+			const unread = notifEl.hasClass('unread');
+			const nid = notifEl.attr('data-nid');
 			markNotification(nid, unread, function () {
-				liEl.toggleClass('unread');
+				notifEl.toggleClass('unread');
 				$this.find('.unread').toggleClass('hidden', unread);
 				$this.find('.read').toggleClass('hidden', !unread);
 			});
@@ -89,6 +89,9 @@ define('notifications', [
 	Notifications.onNewNotification = function (notifData) {
 		if (ajaxify.currentPage === 'notifications') {
 			ajaxify.refresh();
+		}
+		if (ajaxify.data.template.chats && parseInt(ajaxify.data.roomId, 10) === parseInt(notifData.roomId, 10)) {
+			return;
 		}
 
 		socket.emit('notifications.getCount', function (err, count) {

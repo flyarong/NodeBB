@@ -82,14 +82,8 @@ paths:
     $ref: 'read/admin/dashboard/searches.yaml'
   "/api/admin/settings/{term}":
     $ref: 'read/admin/settings/term.yaml'
-  /api/admin/settings/languages:
-    $ref: 'read/admin/settings/languages.yaml'
   /api/admin/settings/navigation:
     $ref: 'read/admin/settings/navigation.yaml'
-  /api/admin/settings/homepage:
-    $ref: 'read/admin/settings/homepage.yaml'
-  /api/admin/settings/social:
-    $ref: 'read/admin/settings/social.yaml'
   /api/admin/settings/api:
     $ref: 'read/admin/settings/api.yaml'
   /api/admin/settings/email:
@@ -268,6 +262,8 @@ paths:
     $ref: 'read/user/userslug/followers.yaml'
   "/api/user/{userslug}/categories":
     $ref: 'read/user/userslug/categories.yaml'
+  "/api/user/{userslug}/tags":
+    $ref: 'read/user/userslug/tags.yaml'
   "/api/user/{userslug}/posts":
     $ref: 'read/user/userslug/posts.yaml'
   "/api/user/{userslug}/topics":
@@ -314,8 +310,14 @@ paths:
     $ref: 'read/notifications.yaml'
   "/api/user/{userslug}/chats/{roomid}":
     $ref: 'read/user/userslug/chats/roomid.yaml'
+  "/api/user/{userslug}/chats/{roomid}/{index}":
+    $ref: 'read/user/userslug/chats/roomid.yaml'
   "/api/chats/{roomid}":
     $ref: 'read/chats/roomid.yaml'
+  "/api/chats/{roomid}/{index}":
+    $ref: 'read/chats/roomid.yaml'
+  "/api/message/{mid}":
+    $ref: 'read/message/mid.yaml'
   /api/groups:
     $ref: 'read/groups.yaml'
   "/api/groups/{slug}":

@@ -60,11 +60,11 @@ Controllers.reset = async function (req, res) {
 			minimumPasswordStrength: meta.config.minimumPasswordStrength,
 			breadcrumbs: helpers.buildBreadcrumbs([
 				{
-					text: '[[reset_password:reset_password]]',
+					text: '[[reset_password:reset-password]]',
 					url: '/reset',
 				},
 				{
-					text: '[[reset_password:update_password]]',
+					text: '[[reset_password:update-password]]',
 				},
 			]),
 			title: '[[pages:reset]]',
@@ -85,7 +85,7 @@ Controllers.reset = async function (req, res) {
 		res.render('reset', {
 			code: null,
 			breadcrumbs: helpers.buildBreadcrumbs([{
-				text: '[[reset_password:reset_password]]',
+				text: '[[reset_password:reset-password]]',
 			}]),
 			title: '[[pages:reset]]',
 		});
@@ -222,6 +222,14 @@ Controllers.registerInterstitial = async function (req, res, next) {
 Controllers.confirmEmail = async (req, res, next) => {
 	try {
 		await user.email.confirmByCode(req.params.code, req.session.id);
+		if (req.session.registration) {
+			// After confirmation, no need to send user back to email change form
+			delete req.session.registration.updateEmail;
+		}
+
+		res.render('confirm', {
+			title: '[[pages:confirm]]',
+		});
 	} catch (e) {
 		if (e.message === '[[error:invalid-data]]') {
 			return next();
@@ -229,10 +237,6 @@ Controllers.confirmEmail = async (req, res, next) => {
 
 		throw e;
 	}
-
-	res.render('confirm', {
-		title: '[[pages:confirm]]',
-	});
 };
 
 Controllers.robots = function (req, res) {
@@ -339,7 +343,7 @@ Controllers.outgoing = function (req, res, next) {
 		outgoing: validator.escape(String(url)),
 		title: meta.config.title,
 		breadcrumbs: helpers.buildBreadcrumbs([{
-			text: '[[notifications:outgoing_link]]',
+			text: '[[notifications:outgoing-link]]',
 		}]),
 	});
 };

@@ -1,4 +1,6 @@
 {
+	"manage-privileges": "Manage Privileges",
+	"discard-changes": "Discard changes",
 	"global": "Глобальные",
 	"admin": "Админка",
 	"group-privileges": "Права групп",
@@ -6,6 +8,7 @@
 	"edit-privileges": "Редактировать права доступа",
   	"select-clear-all": "Выделить/Очистить всё",
 	"chat": "Чат",
+	"chat-with-privileged": "Chat with Privileged",
 	"upload-images": "Загрузка изображений",
 	"upload-files": "Загрузка файлов",
 	"signature": "Подпись",
@@ -31,7 +34,7 @@
 	"edit-posts": "Редактировать сообщения",
 	"view-edit-history": "Просм. историю версий",
 	"delete-posts": "Удалять сообщения",
-	"view_deleted": "Просм. удалённые сообщения",
+	"view-deleted": "Просм. удалённые сообщения",
 	"upvote-posts": "Повышать рейтинг",
 	"downvote-posts": "Понижать рейтинг",
 	"delete-topics": "Удалять темы",

@@ -32,10 +32,17 @@ module.exports = function (Posts) {
 				}
 			});
 			const uids = postData.map(data => data && data.uid);
-			const userData = await user.getUsersFields(uids, ['username', 'userslug', 'picture']);
+			const userData = await user.getUsersFields(uids, [
+				'username', 'userslug', 'picture', 'joindate', 'postcount', 'reputation',
+			]);
 			postData.forEach((postData, index) => {
 				if (postData) {
 					postData.user = userData[index];
+					if (postData.user.uid === 0 && postData.data.handle) {
+						postData.user.username = validator.escape(String(postData.data.handle));
+						postData.user.displayname = postData.user.username;
+						postData.user.fullname = postData.user.username;
+					}
 					postData.data.rawContent = validator.escape(String(postData.data.content));
 					postData.data.title = validator.escape(String(postData.data.title || ''));
 				}
@@ -46,7 +53,7 @@ module.exports = function (Posts) {
 			postData = postData.filter(p => p.id === filter.id);
 		}
 		if (options.metadata) {
-			await Promise.all(postData.map(p => addMetaData(p)));
+			await Promise.all(postData.map(addMetaData));
 		}
 
 		// Filter by tid if present
@@ -71,23 +78,58 @@ module.exports = function (Posts) {
 		if (postData.data.cid) {
 			postData.topic = { cid: parseInt(postData.data.cid, 10) };
 		} else if (postData.data.tid) {
-			postData.topic = await topics.getTopicFields(postData.data.tid, ['title', 'cid']);
+			postData.topic = await topics.getTopicFields(postData.data.tid, ['title', 'cid', 'lastposttime']);
 		}
 		postData.category = await categories.getCategoryData(postData.topic.cid);
 		const result = await plugins.hooks.fire('filter:parse.post', { postData: postData.data });
 		postData.data.content = result.postData.content;
 	}
 
-	Posts.shouldQueue = async function (uid, data) {
-		const [userData, isMemberOfExempt, categoryQueueEnabled] = await Promise.all([
-			user.getUserFields(uid, ['uid', 'reputation', 'postcount']),
-			groups.isMemberOfAny(uid, meta.config.groupsExemptFromPostQueue),
-			isCategoryQueueEnabled(data),
+	Posts.canUserPostContentWithLinks = async function (uid, content) {
+		if (!content) {
+			return true;
+		}
+		const [reputation, isPrivileged] = await Promise.all([
+			user.getUserField(uid, 'reputation'),
+			user.isPrivileged(uid),
 		]);
 
-		const shouldQueue = meta.config.postQueue && categoryQueueEnabled &&
-			!isMemberOfExempt &&
-			(!userData.uid || userData.reputation < meta.config.postQueueReputationThreshold || userData.postcount <= 0);
+		if (!isPrivileged && reputation < meta.config['min:rep:post-links']) {
+			const parsed = await plugins.hooks.fire('filter:parse.raw', String(content));
+			const matches = parsed.matchAll(/<a[^>]*href="([^"]+)"[^>]*>/g);
+			let external = 0;
+			for (const [, href] of matches) {
+				const internal = utils.isInternalURI(new URL(href, nconf.get('url')), new URL(nconf.get('url')), nconf.get('relative_path'));
+				if (!internal) {
+					external += 1;
+				}
+			}
+
+			return external === 0;
+		}
+		return true;
+	};
+
+	Posts.shouldQueue = async function (uid, data) {
+		let shouldQueue = meta.config.postQueue;
+		if (shouldQueue) {
+			const [userData, isPrivileged, isMemberOfExempt, categoryQueueEnabled] = await Promise.all([
+				user.getUserFields(uid, ['uid', 'reputation', 'postcount']),
+				user.isPrivileged(uid),
+				groups.isMemberOfAny(uid, meta.config.groupsExemptFromPostQueue),
+				isCategoryQueueEnabled(data),
+			]);
+			shouldQueue = categoryQueueEnabled &&
+				!isPrivileged &&
+				!isMemberOfExempt &&
+				(
+					!userData.uid ||
+					userData.reputation < meta.config.postQueueReputationThreshold ||
+					userData.postcount <= 0 ||
+					!await Posts.canUserPostContentWithLinks(uid, data.content)
+				);
+		}
+
 		const result = await plugins.hooks.fire('filter:post.shouldQueue', {
 			shouldQueue: !!shouldQueue,
 			uid: uid,
@@ -100,7 +142,7 @@ module.exports = function (Posts) {
 		const type = getType(data);
 		const cid = await getCid(type, data);
 		if (!cid) {
-			throw new Error('[[error:invalid-cid]]');
+			return true;
 		}
 		return await categories.getCategoryField(cid, 'postQueue');
 	}
@@ -161,7 +203,7 @@ module.exports = function (Posts) {
 			type: 'post-queue',
 			nid: `post-queue-${id}`,
 			mergeId: 'post-queue',
-			bodyShort: '[[notifications:post_awaiting_review]]',
+			bodyShort: '[[notifications:post-awaiting-review]]',
 			bodyLong: bodyLong,
 			path: `/post-queue/${id}`,
 		});

@@ -26,7 +26,8 @@ module.exports = function (module) {
 				await module.client.collection('objects').updateOne({ _key: key }, { $set: writeData }, { upsert: true });
 			}
 		} catch (err) {
-			if (err && err.message.startsWith('E11000 duplicate key error')) {
+			if (err && err.message.includes('E11000 duplicate key error')) {
+				console.log(new Error('e11000').stack, key, data);
 				return await module.setObject(key, data);
 			}
 			throw err;
@@ -61,7 +62,8 @@ module.exports = function (module) {
 				await bulk.execute();
 			}
 		} catch (err) {
-			if (err && err.message.startsWith('E11000 duplicate key error')) {
+			if (err && err.message.includes('E11000 duplicate key error')) {
+				console.log(new Error('e11000').stack, data);
 				return await module.setObjectBulk(data);
 			}
 			throw err;
@@ -246,6 +248,7 @@ module.exports = function (module) {
 				$inc: increment,
 			}, {
 				returnDocument: 'after',
+				includeResultMetadata: true,
 				upsert: true,
 			});
 			cache.del(key);
@@ -255,7 +258,8 @@ module.exports = function (module) {
 			// https://github.com/NodeBB/NodeBB/issues/4467
 			// https://jira.mongodb.org/browse/SERVER-14322
 			// https://docs.mongodb.org/manual/reference/command/findAndModify/#upsert-and-unique-index
-			if (err && err.message.startsWith('E11000 duplicate key error')) {
+			if (err && err.message.includes('E11000 duplicate key error')) {
+				console.log(new Error('e11000').stack, key, field, value);
 				return await module.incrObjectFieldBy(key, field, value);
 			}
 			throw err;

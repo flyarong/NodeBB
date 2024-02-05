@@ -34,7 +34,7 @@ define('topicList', [
 		categoryTools.init();
 
 		TopicList.watchForNewPosts();
-		const states = ['watching'];
+		const states = ['watching', 'tracking'];
 		if (ajaxify.data.selectedFilter && ajaxify.data.selectedFilter.filter === 'watched') {
 			states.push('notwatching', 'ignoring');
 		} else if (template !== 'unread') {
@@ -242,7 +242,6 @@ define('topicList', [
 			}
 
 			html.find('.timeago').timeago();
-			utils.makeNumbersHumanReadable(html.find('.human-readable-number'));
 			hooks.fire('action:topics.loaded', { topics: topics, template: templateName });
 			callback();
 		});

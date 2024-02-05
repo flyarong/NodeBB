@@ -47,16 +47,16 @@ define('forum/topic/move-post', [
 				if (config.undoTimeout > 0) {
 					return alerts.alert({
 						alert_id: 'pids_move_' + postSelect.pids.join('-'),
-						title: '[[topic:thread_tools.move-posts]]',
-						message: '[[topic:topic_move_posts_success]]',
+						title: '[[topic:thread-tools.move-posts]]',
+						message: '[[topic:topic-move-posts-success]]',
 						type: 'success',
-						timeout: 10000,
+						timeout: config.undoTimeout,
 						timeoutfn: function () {
 							movePosts(data);
 						},
 						clickfn: function (alert, params) {
 							delete params.timeoutfn;
-							alerts.success('[[topic:topic_move_posts_undone]]');
+							alerts.success('[[topic:topic-move-posts-undone]]');
 							moveCommit.removeAttr('disabled');
 						},
 					});
@@ -78,7 +78,7 @@ define('forum/topic/move-post', [
 		) {
 			targetTid = ajaxify.data.tid;
 		}
-		if (targetTid && !tidInput.val()) {
+		if (targetTid) {
 			tidInput.val(targetTid);
 		}
 		checkMoveButtonEnable();
@@ -149,7 +149,10 @@ define('forum/topic/move-post', [
 					$(this).remove();
 				});
 			});
-
+			if (data.pids.length && ajaxify.data.template.topic &&
+				parseInt(data.tid, 10) === parseInt(ajaxify.data.tid, 10)) {
+				ajaxify.go(`/post/${data.pids[0]}`);
+			}
 			closeMoveModal();
 		}).catch(alerts.error);
 	}

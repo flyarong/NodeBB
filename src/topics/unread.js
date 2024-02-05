@@ -154,7 +154,8 @@ module.exports = function (Topics) {
 				(!filterCids || filterCids.includes(topic.cid)) &&
 				(!filterTags || filterTags.every(tag => topic.tags.find(topicTag => topicTag.value === tag))) &&
 				!blockedUids.includes(topic.uid)) {
-				if (isTopicsFollowed[topic.tid] || userCidState[topic.cid] === categories.watchStates.watching) {
+				if (isTopicsFollowed[topic.tid] ||
+					[categories.watchStates.watching, categories.watchStates.tracking].includes(userCidState[topic.cid])) {
 					tidsByFilter[''].push(topic.tid);
 				}
 
@@ -192,21 +193,30 @@ module.exports = function (Topics) {
 		if (params.filter === 'watched') {
 			return [];
 		}
-		const cids = params.cid || await user.getWatchedCategories(params.uid);
+		const cids = params.cid || await getWatchedTrackedCids(params.uid);
 		const keys = cids.map(cid => `cid:${cid}:tids:lastposttime`);
 		return await db.getSortedSetRevRangeByScoreWithScores(keys, 0, -1, '+inf', params.cutoff);
 	}
 
-	async function getFollowedTids(params) {
-		let tids = await db.getSortedSetMembers(`uid:${params.uid}:followed_tids`);
-		const filterCids = params.cid && params.cid.map(cid => parseInt(cid, 10));
-		if (filterCids) {
-			const topicData = await Topics.getTopicsFields(tids, ['tid', 'cid']);
-			tids = topicData.filter(t => filterCids.includes(t.cid)).map(t => t.tid);
+	async function getWatchedTrackedCids(uid) {
+		if (!(parseInt(uid, 10) > 0)) {
+			return [];
 		}
-		const scores = await db.sortedSetScores('topics:recent', tids);
-		const data = tids.map((tid, index) => ({ value: String(tid), score: scores[index] }));
-		return data.filter(item => item.score > params.cutoff);
+		const cids = await user.getCategoriesByStates(uid, [
+			categories.watchStates.watching, categories.watchStates.tracking,
+		]);
+		const categoryData = await categories.getCategoriesFields(cids, ['disabled']);
+		return cids.filter((cid, index) => categoryData[index] && !categoryData[index].disabled);
+	}
+
+	async function getFollowedTids(params) {
+		const keys = params.cid ?
+			params.cid.map(cid => `cid:${cid}:tids:lastposttime`) :
+			'topics:recent';
+
+		const recentTopicData = await db.getSortedSetRevRangeByScoreWithScores(keys, 0, -1, '+inf', params.cutoff);
+		const isFollowed = await db.isSortedSetMembers(`uid:${params.uid}:followed_tids`, recentTopicData.map(t => t.tid));
+		return recentTopicData.filter((t, i) => isFollowed[i]);
 	}
 
 	async function filterTidsThatHaveBlockedPosts(params) {
@@ -291,14 +301,16 @@ module.exports = function (Topics) {
 			db.sortedSetScores(`uid:${uid}:tids_read`, tids),
 		]);
 
-		const topics = topicScores.filter((t, i) => t.lastposttime && (!userScores[i] || userScores[i] < t.lastposttime));
+		const now = Date.now();
+		const topics = topicScores.filter(
+			(t, i) => t.lastposttime && (!userScores[i] || userScores[i] < t.lastposttime || userScores[i] > now)
+		);
 		tids = topics.map(t => t.tid);
 
 		if (!tids.length) {
 			return false;
 		}
 
-		const now = Date.now();
 		const scores = topics.map(topic => (topic.scheduled ? topic.lastposttime : now));
 		const [topicData] = await Promise.all([
 			Topics.getTopicsFields(tids, ['cid']),
@@ -315,7 +327,8 @@ module.exports = function (Topics) {
 
 	Topics.markAllRead = async function (uid) {
 		const cutoff = await Topics.unreadCutoff(uid);
-		const tids = await db.getSortedSetRevRangeByScore('topics:recent', 0, -1, '+inf', cutoff);
+		let tids = await db.getSortedSetRevRangeByScore('topics:recent', 0, -1, '+inf', cutoff);
+		tids = await privileges.topics.filterTids('topics:read', tids, uid);
 		Topics.markTopicNotificationsRead(tids, uid);
 		await Topics.markAsRead(tids, uid);
 		await db.delete(`uid:${uid}:tids_unread`);

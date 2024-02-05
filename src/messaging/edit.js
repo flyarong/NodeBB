@@ -27,15 +27,16 @@ module.exports = function (Messaging) {
 		await Messaging.setMessageFields(mid, payload);
 
 		// Propagate this change to users in the room
-		const [uids, messages] = await Promise.all([
-			Messaging.getUidsInRoom(roomId, 0, -1),
-			Messaging.getMessagesData([mid], uid, roomId, true),
-		]);
-
-		uids.forEach((uid) => {
-			sockets.in(`uid_${uid}`).emit('event:chats.edit', {
+		const messages = await Messaging.getMessagesData([mid], uid, roomId, true);
+		if (messages[0]) {
+			const roomName = messages[0].deleted ? `uid_${uid}` : `chat_room_${roomId}`;
+			sockets.in(roomName).emit('event:chats.edit', {
 				messages: messages,
 			});
+		}
+
+		plugins.hooks.fire('action:messaging.edit', {
+			message: { ...messages[0], content: payload.content },
 		});
 	};
 
@@ -65,8 +66,8 @@ module.exports = function (Messaging) {
 			throw new Error('[[error:user-banned]]');
 		}
 
-		const canChat = await privileges.global.can('chat', uid);
-		if (!canChat) {
+		const canChat = await privileges.global.can(['chat', 'chat:privileged'], uid);
+		if (!canChat.includes(true)) {
 			throw new Error('[[error:no-privileges]]');
 		}
 
@@ -89,4 +90,16 @@ module.exports = function (Messaging) {
 
 	Messaging.canEdit = async (messageId, uid) => await canEditDelete(messageId, uid, 'edit');
 	Messaging.canDelete = async (messageId, uid) => await canEditDelete(messageId, uid, 'delete');
+
+	Messaging.canPin = async (roomId, uid) => {
+		const [isAdmin, isGlobalMod, inRoom, isRoomOwner] = await Promise.all([
+			user.isAdministrator(uid),
+			user.isGlobalModerator(uid),
+			Messaging.isUserInRoom(uid, roomId),
+			Messaging.isRoomOwner(uid, roomId),
+		]);
+		if (!isAdmin && !isGlobalMod && (!inRoom || !isRoomOwner)) {
+			throw new Error('[[error:no-privileges]]');
+		}
+	};
 };

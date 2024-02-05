@@ -82,6 +82,7 @@ helpers.getUserDataByUserSlug = async function (userslug, callerUID, query = {})
 	userData.canChangePassword = isAdmin || (isSelf && !meta.config['password:disableEdit']);
 	userData.isSelf = isSelf;
 	userData.isFollowing = results.isFollowing;
+	userData.canChat = results.canChat;
 	userData.hasPrivateChat = results.hasPrivateChat;
 	userData.showHidden = results.canEdit; // remove in v1.19.0
 	userData.allowProfilePicture = !userData.isSelf || !!meta.config['reputation:disabled'] || userData.reputation >= meta.config['min:rep:profile-picture'];
@@ -104,7 +105,6 @@ helpers.getUserDataByUserSlug = async function (userslug, callerUID, query = {})
 		canViewInfo: canViewInfo,
 	});
 
-	userData.sso = results.sso.associations;
 	userData.banned = Boolean(userData.banned);
 	userData.muted = parseInt(userData.mutedUntil, 10) > Date.now();
 	userData.website = escape(userData.website);
@@ -153,14 +153,26 @@ async function getAllData(uid, callerUID) {
 		ips: user.getIPs(uid, 4),
 		profile_menu: getProfileMenu(uid, callerUID),
 		groups: groups.getUserGroups([uid]),
-		sso: plugins.hooks.fire('filter:auth.list', { uid: uid, associations: [] }),
 		canEdit: privileges.users.canEdit(callerUID, uid),
 		canBanUser: privileges.users.canBanUser(callerUID, uid),
 		canMuteUser: privileges.users.canMuteUser(callerUID, uid),
 		isBlocked: user.blocks.is(uid, callerUID),
 		canViewInfo: privileges.global.can('view:users:info', callerUID),
+		canChat: canChat(callerUID, uid),
 		hasPrivateChat: messaging.hasPrivateChat(callerUID, uid),
 	});
+}
+
+async function canChat(callerUID, uid) {
+	try {
+		await messaging.canMessageUser(callerUID, uid);
+	} catch (err) {
+		if (err.message.startsWith('[[error:')) {
+			return false;
+		}
+		throw err;
+	}
+	return true;
 }
 
 async function getCounts(userData, callerUID) {
@@ -180,6 +192,7 @@ async function getCounts(userData, callerUID) {
 		promises.bookmarks = db.sortedSetCard(`uid:${uid}:bookmarks`);
 		promises.uploaded = db.sortedSetCard(`uid:${uid}:uploads`);
 		promises.categoriesWatched = user.getWatchedCategories(uid);
+		promises.tagsWatched = db.sortedSetCard(`uid:${uid}:followed_tags`);
 		promises.blocks = user.getUserField(userData.uid, 'blocksCount');
 	}
 	const counts = await utils.promiseParallel(promises);
@@ -197,7 +210,7 @@ async function getProfileMenu(uid, callerUID) {
 	const links = [{
 		id: 'info',
 		route: 'info',
-		name: '[[user:account_info]]',
+		name: '[[user:account-info]]',
 		icon: 'fa-info',
 		visibility: {
 			self: false,

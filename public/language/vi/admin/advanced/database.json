@@ -5,7 +5,7 @@
 	"uptime-seconds": "Thời gian hoạt động(giây)",
 	"uptime-days": "Thời gian hoạt động(Ngày)",
 
-	"mongo": "Mongo",
+	"mongo": "MongoDB",
 	"mongo.version": "Phiên bản MongoDB ",
 	"mongo.storage-engine": "Phương Thức Lưu Trữ",
 	"mongo.collections": "Tập dữ liệu",
@@ -17,7 +17,7 @@
 	"mongo.file-size": "Kích cỡ tệp",
 	"mongo.resident-memory": "Bộ Nhớ Thường Trú",
 	"mongo.virtual-memory": "Bộ Nhớ Ảo",
-	"mongo.mapped-memory": "Bộ Nhớ Được Ánh Xạ",
+	"mongo.mapped-memory": "Bộ nhớ được ánh xạ",
 	"mongo.bytes-in": "Byte trong",
 	"mongo.bytes-out": "Byte ngoài",
 	"mongo.num-requests": "Số lượng yêu cầu",

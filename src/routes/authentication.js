@@ -6,10 +6,10 @@ const passportLocal = require('passport-local').Strategy;
 const BearerStrategy = require('passport-http-bearer').Strategy;
 const winston = require('winston');
 
-const meta = require('../meta');
 const controllers = require('../controllers');
 const helpers = require('../controllers/helpers');
 const plugins = require('../plugins');
+const api = require('../api');
 const { generateToken } = require('../middleware/csrf');
 
 let loginStrategies = [];
@@ -45,8 +45,7 @@ Auth.getLoginStrategies = function () {
 };
 
 Auth.verifyToken = async function (token, done) {
-	const { tokens = [] } = await meta.settings.get('core.api');
-	const tokenObj = tokens.find(t => t.token === token);
+	const tokenObj = await api.utils.tokens.get(token);
 	const uid = tokenObj ? tokenObj.uid : undefined;
 
 	if (uid !== undefined) {
@@ -98,6 +97,9 @@ Auth.reloadRoutes = async function (params) {
 					req.session.ssoState = generateToken(req, true);
 					opts.state = req.session.ssoState;
 				}
+				if (req.query.next) {
+					req.session.next = req.query.next;
+				}
 
 				// Allow SSO plugins to override/append options (for use in passport prototype authorizationParams)
 				({ opts } = await plugins.hooks.fire('filter:auth.options', { req, res, opts }));
@@ -117,7 +119,7 @@ Auth.reloadRoutes = async function (params) {
 			req.session.registration = req.session.registration || {};
 			// save returnTo for later usage in /register/complete
 			// passport seems to remove `req.session.returnTo` after it redirects
-			req.session.registration.returnTo = req.session.returnTo;
+			req.session.registration.returnTo = req.session.next || req.session.returnTo;
 
 			passport.authenticate(strategy.name, (err, user) => {
 				if (err) {

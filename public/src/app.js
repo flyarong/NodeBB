@@ -253,8 +253,6 @@ if (document.readyState === 'loading') {
 		highlightNavigationLink();
 		overrides.overrideTimeagoCutoff();
 		$('.timeago').timeago();
-		utils.makeNumbersHumanReadable($('.human-readable-number'));
-		utils.addCommasToNumbers($('.formatted-number'));
 		app.createUserTooltips($('#content'));
 		app.createStatusTooltips();
 	};
@@ -280,13 +278,40 @@ if (document.readyState === 'loading') {
 		});
 	};
 
-	app.newTopic = function (cid, tags) {
+	app.newTopic = function (params) {
+		// backwards compatibilty for old signature (cid, tags)
+		if (typeof params !== 'object') {
+			if (params) {
+				console.warn('[deprecated] app.newTopic(cid, tags) please pass in an object');
+			}
+			params = {
+				cid: params,
+				tags: arguments[1] || (ajaxify.data.tag ? [ajaxify.data.tag] : []),
+			};
+		}
+
 		require(['hooks'], function (hooks) {
-			hooks.fire('action:composer.topic.new', {
-				cid: cid || ajaxify.data.cid || 0,
-				tags: tags || (ajaxify.data.tag ? [ajaxify.data.tag] : []),
-			});
+			params.cid = params.cid || ajaxify.data.cid || 0;
+			params.tags = params.tags || (ajaxify.data.tag ? [ajaxify.data.tag] : []);
+			hooks.fire('action:composer.topic.new', params);
 		});
+	};
+
+	app.newReply = async function (params) {
+		// backwards compatibilty for old signature (tid)
+		if (typeof params !== 'object') {
+			console.warn('[deprecated] app.newReply(tid) please pass in an object');
+			params = {
+				tid: params,
+			};
+		}
+
+		const [hooks, api] = await app.require(['hooks', 'api']);
+		params.title = (ajaxify.data.template.topic ?
+			ajaxify.data.titleRaw :
+			(await api.get(`/topics/${params.tid}`)).titleRaw);
+
+		hooks.fire('action:composer.post.new', params);
 	};
 
 	app.loadJQueryUI = function (callback) {

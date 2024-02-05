@@ -7,8 +7,6 @@ const winston = require('winston');
 
 const db = require('../database');
 const pubsub = require('../pubsub');
-const plugins = require('../plugins');
-const utils = require('../utils');
 const Meta = require('./index');
 const cacheBuster = require('./cacheBuster');
 const defaults = require('../../install/data/defaults.json');
@@ -148,46 +146,6 @@ Configs.remove = async function (field) {
 	await db.deleteObjectField('config', field);
 };
 
-Configs.registerHooks = () => {
-	plugins.hooks.register('core', {
-		hook: 'filter:settings.set',
-		method: async ({ plugin, settings, quiet }) => {
-			if (plugin === 'core.api' && Array.isArray(settings.tokens)) {
-				// Generate tokens if not present already
-				settings.tokens.forEach((set) => {
-					if (set.token === '') {
-						set.token = utils.generateUUID();
-					}
-
-					if (isNaN(parseInt(set.uid, 10))) {
-						set.uid = 0;
-					}
-				});
-			}
-
-			return { plugin, settings, quiet };
-		},
-	});
-
-	plugins.hooks.register('core', {
-		hook: 'filter:settings.get',
-		method: async ({ plugin, values }) => {
-			if (plugin === 'core.api' && Array.isArray(values.tokens)) {
-				values.tokens = values.tokens.map((tokenObj) => {
-					tokenObj.uid = parseInt(tokenObj.uid, 10);
-					if (tokenObj.timestamp) {
-						tokenObj.timestampISO = new Date(parseInt(tokenObj.timestamp, 10)).toISOString();
-					}
-
-					return tokenObj;
-				});
-			}
-
-			return { plugin, values };
-		},
-	});
-};
-
 Configs.cookie = {
 	get: () => {
 		const cookie = {};
@@ -220,7 +178,7 @@ async function processConfig(data) {
 	if (data.minimumUsernameLength > data.maximumUsernameLength) {
 		throw new Error('[[error:invalid-data]]');
 	}
-
+	require('../social').postSharing = null;
 	await Promise.all([
 		saveRenderedCss(data),
 		getLogoSize(data),

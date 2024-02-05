@@ -5,7 +5,7 @@
 	"uptime-seconds": "Üzemidő másodpercben",
 	"uptime-days": "Üzemidő napban",
 
-	"mongo": "Mongo",
+	"mongo": "MongoDB",
 	"mongo.version": "MongoDB Verzió",
 	"mongo.storage-engine": "Tárolómotor",
 	"mongo.collections": "Gyűjtemények",
@@ -17,7 +17,7 @@
 	"mongo.file-size": "Fájlméret",
 	"mongo.resident-memory": "Rezidens memória",
 	"mongo.virtual-memory": "Virtuális memória",
-	"mongo.mapped-memory": "Leképezett memória",
+	"mongo.mapped-memory": "Mapped Memory",
 	"mongo.bytes-in": "Bejövő bájtok",
 	"mongo.bytes-out": "Kimenő bájtok",
 	"mongo.num-requests": "Kérések száma",

@@ -108,15 +108,15 @@ module.exports = function (User) {
 			`uid:${uid}:bookmarks`,
 			`uid:${uid}:tids_read`,
 			`uid:${uid}:tids_unread`,
-			`uid:${uid}:followed_tids`,
-			`uid:${uid}:ignored_tids`,
 			`uid:${uid}:blocked_uids`,
 			`user:${uid}:settings`,
 			`user:${uid}:usernames`,
 			`user:${uid}:emails`,
 			`uid:${uid}:topics`, `uid:${uid}:posts`,
 			`uid:${uid}:chats`, `uid:${uid}:chats:unread`,
-			`uid:${uid}:chat:rooms`, `uid:${uid}:chat:rooms:unread`,
+			`uid:${uid}:chat:rooms`,
+			`uid:${uid}:chat:rooms:unread`,
+			`uid:${uid}:chat:rooms:read`,
 			`uid:${uid}:upvote`, `uid:${uid}:downvote`,
 			`uid:${uid}:flag:pids`,
 			`uid:${uid}:sessions`, `uid:${uid}:sessionUUID:sessionId`,
@@ -145,15 +145,38 @@ module.exports = function (User) {
 			db.setRemove('invitation:uids', uid),
 			deleteUserIps(uid),
 			deleteUserFromFollowers(uid),
+			deleteUserFromFollowedTopics(uid),
+			deleteUserFromIgnoredTopics(uid),
+			deleteUserFromFollowedTags(uid),
 			deleteImages(uid),
 			groups.leaveAllGroups(uid),
 			flags.resolveFlag('user', uid, uid),
 			User.reset.cleanByUid(uid),
+			User.email.expireValidation(uid),
 		]);
-		await db.deleteAll([`followers:${uid}`, `following:${uid}`, `user:${uid}`]);
+		await db.deleteAll([
+			`followers:${uid}`, `following:${uid}`, `user:${uid}`,
+			`uid:${uid}:followed_tags`, `uid:${uid}:followed_tids`,
+			`uid:${uid}:ignored_tids`,
+		]);
 		delete deletesInProgress[uid];
 		return userData;
 	};
+
+	async function deleteUserFromFollowedTopics(uid) {
+		const tids = await db.getSortedSetRange(`uid:${uid}:followed_tids`, 0, -1);
+		await db.setsRemove(tids.map(tid => `tid:${tid}:followers`), uid);
+	}
+
+	async function deleteUserFromIgnoredTopics(uid) {
+		const tids = await db.getSortedSetRange(`uid:${uid}:ignored_tids`, 0, -1);
+		await db.setsRemove(tids.map(tid => `tid:${tid}:ignorers`), uid);
+	}
+
+	async function deleteUserFromFollowedTags(uid) {
+		const tags = await db.getSortedSetRange(`uid:${uid}:followed_tags`, 0, -1);
+		await db.sortedSetsRemove(tags.map(tag => `tag:${tag}:followers`), uid);
+	}
 
 	async function deleteVotes(uid) {
 		const [upvotedPids, downvotedPids] = await Promise.all([
@@ -167,13 +190,10 @@ module.exports = function (User) {
 	}
 
 	async function deleteChats(uid) {
-		const roomIds = await db.getSortedSetRange(`uid:${uid}:chat:rooms`, 0, -1);
-		const userKeys = roomIds.map(roomId => `uid:${uid}:chat:room:${roomId}:mids`);
-
-		await Promise.all([
-			messaging.leaveRooms(uid, roomIds),
-			db.deleteAll(userKeys),
-		]);
+		const roomIds = await db.getSortedSetRange([
+			`uid:${uid}:chat:rooms`, `chat:rooms:public`,
+		], 0, -1);
+		await messaging.leaveRooms(uid, roomIds);
 	}
 
 	async function deleteUserIps(uid) {
@@ -208,9 +228,6 @@ module.exports = function (User) {
 
 	async function deleteImages(uid) {
 		const folder = path.join(nconf.get('upload_path'), 'profile');
-		await Promise.all([
-			rimraf(path.join(folder, `${uid}-profilecover*`), { glob: true }),
-			rimraf(path.join(folder, `${uid}-profileavatar*`), { glob: true }),
-		]);
+		await rimraf(`${uid}-profile{avatar,cover}*`, { glob: { cwd: folder } });
 	}
 };

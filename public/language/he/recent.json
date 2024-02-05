@@ -4,8 +4,8 @@
     "week": "שבוע",
     "month": "חודש",
     "year": "שנה",
-    "alltime": "כל הזמן",
-    "no_recent_topics": "אין נושאים חדשים",
-    "no_popular_topics": "אין נושאים פופולריים.",
-    "load-new-posts": "Load new posts"
+    "alltime": "תמיד",
+    "no-recent-topics": "אין נושאים חדשים.",
+    "no-popular-topics": "אין נושאים פופולריים.",
+    "load-new-posts": "טעינת פוסטים חדשים"
 }

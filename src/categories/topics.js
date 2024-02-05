@@ -6,6 +6,9 @@ const plugins = require('../plugins');
 const meta = require('../meta');
 const privileges = require('../privileges');
 const user = require('../user');
+const notifications = require('../notifications');
+const translator = require('../translator');
+const batch = require('../batch');
 
 module.exports = function (Categories) {
 	Categories.getCategoryTopics = async function (data) {
@@ -24,12 +27,8 @@ module.exports = function (Categories) {
 	};
 
 	Categories.getTopicIds = async function (data) {
-		const dataForPinned = { ...data };
-		dataForPinned.start = 0;
-		dataForPinned.stop = -1;
-
 		const [pinnedTids, set, direction] = await Promise.all([
-			Categories.getPinnedTids(dataForPinned),
+			Categories.getPinnedTids({ ...data, start: 0, stop: -1 }),
 			Categories.buildTopicsSortedSet(data),
 			Categories.getSortedSetRangeDirection(data.sort),
 		]);
@@ -161,9 +160,9 @@ module.exports = function (Categories) {
 
 		topics.forEach((topic) => {
 			if (!topic.scheduled && topic.deleted && !topic.isOwner) {
-				topic.title = '[[topic:topic_is_deleted]]';
+				topic.title = '[[topic:topic-is-deleted]]';
 				if (topic.hasOwnProperty('titleRaw')) {
-					topic.titleRaw = '[[topic:topic_is_deleted]]';
+					topic.titleRaw = '[[topic:topic-is-deleted]]';
 				}
 				topic.slug = topic.tid;
 				topic.teaser = null;
@@ -188,9 +187,63 @@ module.exports = function (Categories) {
 		await Categories.updateRecentTidForCid(cid);
 	};
 
+	Categories.onTopicsMoved = async (cids) => {
+		await Promise.all(cids.map(async (cid) => {
+			await Promise.all([
+				Categories.setCategoryField(
+					cid, 'topic_count', await db.sortedSetCard(`cid:${cid}:tids:lastposttime`)
+				),
+				Categories.setCategoryField(
+					cid, 'post_count', await db.sortedSetCard(`cid:${cid}:pids`)
+				),
+				Categories.updateRecentTidForCid(cid),
+			]);
+		}));
+	};
+
 	async function filterScheduledTids(tids) {
 		const scores = await db.sortedSetScores('topics:scheduled', tids);
 		const now = Date.now();
 		return tids.filter((tid, index) => tid && (!scores[index] || scores[index] <= now));
 	}
+
+	Categories.notifyCategoryFollowers = async (postData, exceptUid) => {
+		const { cid } = postData.topic;
+		const followers = [];
+		await batch.processSortedSet(`cid:${cid}:uid:watch:state`, async (uids) => {
+			followers.push(
+				...await privileges.categories.filterUids('topics:read', cid, uids)
+			);
+		}, {
+			batch: 500,
+			min: Categories.watchStates.watching,
+			max: Categories.watchStates.watching,
+		});
+		const index = followers.indexOf(String(exceptUid));
+		if (index !== -1) {
+			followers.splice(index, 1);
+		}
+		if (!followers.length) {
+			return;
+		}
+
+		const { displayname } = postData.user;
+		const categoryName = await Categories.getCategoryField(cid, 'name');
+		const notifBase = 'notifications:user-posted-topic-in-category';
+
+		const bodyShort = translator.compile(notifBase, displayname, categoryName);
+
+		const notification = await notifications.create({
+			type: 'new-topic-in-category',
+			nid: `new_topic:tid:${postData.topic.tid}:uid:${exceptUid}`,
+			subject: bodyShort,
+			bodyShort: bodyShort,
+			bodyLong: postData.content,
+			pid: postData.pid,
+			path: `/post/${postData.pid}`,
+			tid: postData.topic.tid,
+			from: exceptUid,
+		});
+		notifications.push(notification, followers);
+	};
 };

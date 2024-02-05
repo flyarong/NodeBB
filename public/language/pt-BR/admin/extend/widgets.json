@@ -1,10 +1,11 @@
 {
+	"widgets": "Widgets",
 	"available": "Widgets Disponíveis",
 	"explanation": "Escolha um widget do menu de dropdown e então arraste e solte numa área de widget do template à esquerda.",
 	"none-installed": "Nenhum widget encontrado! Ative o plug-in de widgets básicos no  <a href=\"%1\"> painel de controle de plugins</a>.",
 	"clone-from": "Copiar widgets de",
 	"containers.available": "Contêineres Disponíveis",
-	"containers.explanation": "Arrastar e soltar em cima de qualquer widget ativo",
+	"containers.explanation": "Arraste e solte sobre algum widget",
 	"containers.none": "Nenhum",
 	"container.well": "Bem",
 	"container.jumbotron": "Jumbotron",
@@ -26,5 +27,9 @@
 	"container.placeholder": "Arraste e solte um contêiner ou insira HTML aqui.",
 	"show-to-groups": "Mostrar para grupos",
 	"hide-from-groups": "Esconder dos grupos",
-	"hide-on-mobile": "Esconder no móvel"
+	"start-date": "Start date",
+	"end-date": "End date",
+	"hide-on-mobile": "Esconder no móvel",
+	"hide-drafts": "Hide drafts",
+	"show-drafts": "Show drafts"
 }

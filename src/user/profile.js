@@ -232,7 +232,7 @@ module.exports = function (User) {
 	};
 
 	async function updateEmail(uid, newEmail) {
-		let oldEmail = await User.getUserField(uid, 'email');
+		let oldEmail = await db.getObjectField(`user:${uid}`, 'email');
 		oldEmail = oldEmail || '';
 		if (oldEmail === newEmail) {
 			return;
@@ -251,7 +251,7 @@ module.exports = function (User) {
 		if (!newUsername) {
 			return;
 		}
-		const userData = await User.getUserFields(uid, ['username', 'userslug']);
+		const userData = await db.getObjectFields(`user:${uid}`, ['username', 'userslug']);
 		if (userData.username === newUsername) {
 			return;
 		}
@@ -278,7 +278,7 @@ module.exports = function (User) {
 	}
 
 	async function updateFullname(uid, newFullname) {
-		const fullname = await User.getUserField(uid, 'fullname');
+		const fullname = await db.getObjectField(`user:${uid}`, 'fullname');
 		await updateUidMapping('fullname', uid, newFullname, fullname);
 		if (newFullname !== fullname) {
 			if (fullname) {
@@ -307,13 +307,15 @@ module.exports = function (User) {
 		const isSelf = parseInt(uid, 10) === parseInt(data.uid, 10);
 
 		if (!isAdmin && !isSelf) {
-			throw new Error('[[user:change_password_error_privileges]]');
+			throw new Error('[[user:change-password-error-privileges]]');
 		}
+
+		await plugins.hooks.fire('filter:password.check', { password: data.newPassword, uid: data.uid });
 
 		if (isSelf && hasPassword) {
 			const correct = await User.isPasswordCorrect(data.uid, data.currentPassword, data.ip);
 			if (!correct) {
-				throw new Error('[[user:change_password_error_wrong_current]]');
+				throw new Error('[[user:change-password-error-wrong-current]]');
 			}
 		}
 

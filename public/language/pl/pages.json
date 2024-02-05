@@ -14,6 +14,7 @@
     "flagged-content": "Flagi",
     "ip-blacklist": "Czarna lista adresów IP",
     "post-queue": "Kolejka postów",
+    "registration-queue": "Registration Queue",
     "users/online": "Dostępni użytkownicy",
     "users/latest": "Nowi użytkownicy",
     "users/sort-posts": "Użytkownicy z największą liczbą postów",
@@ -46,7 +47,8 @@
     "account/latest-posts": "Najnowszy post utworzony przez %1",
     "account/topics": "Tematy utworzone przez %1",
     "account/groups": "Grupy %1",
-    "account/watched_categories": "Kategorie obserwowane przez %1",
+    "account/watched-categories": "Kategorie obserwowane przez %1",
+    "account/watched-tags": "%1's Watched Tags",
     "account/bookmarks": "Posty w zakładkach %1",
     "account/settings": "Ustawienia użytkownika",
     "account/settings-of": "Zmiana ustawień %1",
@@ -60,7 +62,7 @@
     "account/uploads": "Pliki przesłane przez %1",
     "account/sessions": "Sesje logowania",
     "confirm": "E-mail potwierdzony",
-    "maintenance.text": "Obecnie trwają prace konserwacyjne nad %1. Wróć później.",
+    "maintenance.text": "%1 is currently undergoing maintenance.<br/>Please come back another time.",
     "maintenance.messageIntro": "Dodatkowo administrator zostawił wiadomość:",
     "throttled.text": "%1 jest niedostępny z powodu przeciążenia. Wróć później."
 }

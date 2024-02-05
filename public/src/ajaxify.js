@@ -1,5 +1,8 @@
 'use strict';
 
+const benchpress = require('benchpressjs');
+const translator = require('./modules/translator');
+const alerts = require('./modules/alerts');
 const hooks = require('./modules/hooks');
 const { render } = require('./widgets');
 
@@ -14,6 +17,7 @@ ajaxify.widgets = { render: render };
 
 	ajaxify.count = 0;
 	ajaxify.currentPage = null;
+	ajaxify.requestedPage = null;
 	// disables scroll to top when back button is clicked
 	// https://developer.chrome.com/blog/history-api-scroll-restoration/
 	if ('scrollRestoration' in history) {
@@ -35,10 +39,11 @@ ajaxify.widgets = { render: render };
 		}
 
 		// Abort subsequent requests if clicked multiple times within a short window of time
-		if (ajaxifyTimer && (Date.now() - ajaxifyTimer) < 500) {
+		if (ajaxify.requestedPage === url && ajaxifyTimer && (Date.now() - ajaxifyTimer) < 500) {
 			return true;
 		}
 		ajaxifyTimer = Date.now();
+		ajaxify.requestedPage = url;
 
 		if (ajaxify.handleRedirects(url)) {
 			return true;
@@ -131,6 +136,7 @@ ajaxify.widgets = { render: render };
 
 	ajaxify.updateHistory = function (url, quiet) {
 		ajaxify.currentPage = url.split(/[?#]/)[0];
+		ajaxify.requestedPage = null;
 		if (window.history && window.history.pushState) {
 			window.history[!quiet ? 'pushState' : 'replaceState']({
 				url: url,
@@ -144,7 +150,7 @@ ajaxify.widgets = { render: render };
 
 		if (data) {
 			let status = parseInt(data.status, 10);
-			if ([400, 403, 404, 500, 502, 504].includes(status)) {
+			if ([400, 403, 404, 500, 502, 503].includes(status)) {
 				if (status === 502 && retry) {
 					retry = false;
 					ajaxifyTimer = undefined;
@@ -154,15 +160,14 @@ ajaxify.widgets = { render: render };
 					status = 500;
 				}
 				if (data.responseJSON) {
+					ajaxify.data.bodyClass = data.responseJSON.bodyClass;
 					data.responseJSON.config = config;
 				}
 
 				$('#footer, #content').removeClass('hide').addClass('ajaxifying');
 				return renderTemplate(url, status.toString(), data.responseJSON || {}, callback);
 			} else if (status === 401) {
-				require(['alerts'], function (alerts) {
-					alerts.error('[[global:please_log_in]]');
-				});
+				alerts.error('[[global:please-log-in]]');
 				app.previousUrl = url;
 				window.location.href = config.relative_path + '/login';
 			} else if (status === 302 || status === 308) {
@@ -180,55 +185,51 @@ ajaxify.widgets = { render: render };
 				}
 			}
 		} else if (textStatus !== 'abort') {
-			require(['alerts'], function (alerts) {
-				alerts.error(data.responseJSON.error);
-			});
+			alerts.error(data.responseJSON.error);
 		}
 	}
 
 	function renderTemplate(url, tpl_url, data, callback) {
 		hooks.fire('action:ajaxify.loadingTemplates', {});
-		require(['translator', 'benchpress'], function (translator, Benchpress) {
-			Benchpress.render(tpl_url, data)
-				.then(rendered => translator.translate(rendered))
-				.then(function (translated) {
-					translated = translator.unescape(translated);
-					$('body').removeClass(previousBodyClass).addClass(data.bodyClass);
-					$('#content').html(translated);
+		benchpress.render(tpl_url, data)
+			.then(rendered => translator.translate(rendered))
+			.then(function (translated) {
+				translated = translator.unescape(translated);
+				$('body').removeClass(previousBodyClass).addClass(data.bodyClass);
+				$('#content').html(translated);
 
-					ajaxify.end(url, tpl_url);
+				ajaxify.end(url, tpl_url);
 
-					if (typeof callback === 'function') {
-						callback();
-					}
+				if (typeof callback === 'function') {
+					callback();
+				}
 
-					$('#content, #footer').removeClass('ajaxifying');
+				$('#content, #footer').removeClass('ajaxifying');
 
-					// Only executed on ajaxify. Otherwise these'd be in ajaxify.end()
-					updateTitle(data.title);
-					updateTags();
-				});
-		});
+				// Only executed on ajaxify. Otherwise these'd be in ajaxify.end()
+				updateTitle(data.title);
+				updateTags();
+			});
 	}
 
 	function updateTitle(title) {
 		if (!title) {
 			return;
 		}
-		require(['translator'], function (translator) {
-			title = config.titleLayout.replace(/&#123;/g, '{').replace(/&#125;/g, '}')
-				.replace('{pageTitle}', function () { return title; })
-				.replace('{browserTitle}', function () { return config.browserTitle; });
 
-			// Allow translation strings in title on ajaxify (#5927)
-			title = translator.unescape(title);
-			const data = { title: title };
-			hooks.fire('action:ajaxify.updateTitle', data);
-			translator.translate(data.title, function (translated) {
-				window.document.title = $('<div></div>').html(translated).text();
-			});
+		title = config.titleLayout.replace(/&#123;/g, '{').replace(/&#125;/g, '}')
+			.replace('{pageTitle}', function () { return title; })
+			.replace('{browserTitle}', function () { return config.browserTitle; });
+
+		// Allow translation strings in title on ajaxify (#5927)
+		title = translator.unescape(title);
+		const data = { title: title };
+		hooks.fire('action:ajaxify.updateTitle', data);
+		translator.translate(data.title, function (translated) {
+			window.document.title = $('<div></div>').html(translated).text();
 		});
 	}
+	ajaxify.updateTitle = updateTitle;
 
 	function updateTags() {
 		const metaWhitelist = ['title', 'description', /og:.+/, /article:.+/, 'robots'].map(function (val) {
@@ -248,25 +249,25 @@ ajaxify.widgets = { render: render };
 			.forEach(function (el) {
 				document.head.removeChild(el);
 			});
-		require(['translator'], function (translator) {
-			// Add new meta tags
-			ajaxify.data._header.tags.meta
-				.filter(function (tagObj) {
-					const name = tagObj.name || tagObj.property;
-					return metaWhitelist.some(function (exp) {
-						return !!exp.test(name);
-					});
-				}).forEach(async function (tagObj) {
-					if (tagObj.content) {
-						tagObj.content = await translator.translate(tagObj.content);
-					}
-					const metaEl = document.createElement('meta');
-					Object.keys(tagObj).forEach(function (prop) {
-						metaEl.setAttribute(prop, tagObj[prop]);
-					});
-					document.head.appendChild(metaEl);
+
+		// Add new meta tags
+		ajaxify.data._header.tags.meta
+			.filter(function (tagObj) {
+				const name = tagObj.name || tagObj.property;
+				return metaWhitelist.some(function (exp) {
+					return !!exp.test(name);
 				});
-		});
+			}).forEach(async function (tagObj) {
+				if (tagObj.content) {
+					tagObj.content = await translator.translate(tagObj.content);
+				}
+				const metaEl = document.createElement('meta');
+				Object.keys(tagObj).forEach(function (prop) {
+					metaEl.setAttribute(prop, tagObj[prop]);
+				});
+				document.head.appendChild(metaEl);
+			});
+
 
 		// Delete the old link tags
 		Array.prototype.slice
@@ -303,11 +304,11 @@ ajaxify.widgets = { render: render };
 			window.scrollTo(0, 0);
 			// if on topic page, scroll to the correct post,
 			// this is here to avoid a flash of the wrong posts at the top of the page
-			if (ajaxify.data.template.topic && ajaxify.data.postIndex > 1) {
-				require(['navigator'], function (navigator) {
+			require(['navigator'], function (navigator) {
+				if (navigator.shouldScrollToPost(ajaxify.data.postIndex)) {
 					navigator.scrollToPostIndex(ajaxify.data.postIndex - 1, true, 0);
-				});
-			}
+				}
+			});
 		}
 		ajaxify.loadScript(tpl_url, function done() {
 			hooks.fire('action:ajaxify.end', { url: url, tpl_url: tpl_url, title: ajaxify.data.title });
@@ -471,26 +472,38 @@ ajaxify.widgets = { render: render };
 		hooks.fire('action:ajaxify.cleanup', { url, tpl_url });
 	};
 
-	require(['translator', 'benchpress', 'navigator'], function (translator, Benchpress) {
-		translator.translate('[[error:no-connection]]');
-		translator.translate('[[error:socket-reconnect-failed]]');
-		translator.translate(`[[global:reconnecting-message, ${config.siteTitle}]]`);
-		Benchpress.registerLoader(ajaxify.loadTemplate);
-		Benchpress.setGlobal('config', config);
-		Benchpress.render('500', {}); // loads and caches the 500.tpl
-	});
+	ajaxify.handleTransientElements = () => {
+		// todo: modals?
+
+		const elements = ['[component="notifications"]', '[component="chat/dropdown"]', '[component="sidebar/drafts"]', '[component="header/avatar"]']
+			.map(el => document.querySelector(`${el} .dropdown-menu.show`) || document.querySelector(`${el} + .dropdown-menu.show`))
+			.filter(Boolean);
+
+		if (elements.length) {
+			elements.forEach((el) => {
+				el.classList.remove('show');
+			});
+		}
+	};
+
+	translator.translate('[[error:no-connection]]');
+	translator.translate('[[error:socket-reconnect-failed]]');
+	translator.translate(`[[global:reconnecting-message, ${config.siteTitle}]]`);
+	benchpress.registerLoader(ajaxify.loadTemplate);
+	benchpress.setGlobal('config', config);
+	benchpress.render('500', {}); // loads and caches 500.tpl
+	benchpress.render('partials/toast'); // loads and caches partials/toast
 }());
 
 $(document).ready(function () {
-	$(window).on('popstate', function (ev) {
-		ev = ev.originalEvent;
-
+	window.addEventListener('popstate', (ev) => {
 		if (ev !== null && ev.state) {
 			if (ev.state.url === null && ev.state.returnPath !== undefined) {
 				window.history.replaceState({
 					url: ev.state.returnPath,
 				}, ev.state.returnPath, config.relative_path + '/' + ev.state.returnPath);
 			} else if (ev.state.url !== undefined) {
+				ajaxify.handleTransientElements();
 				ajaxify.go(ev.state.url, function () {
 					hooks.fire('action:popstate', { url: ev.state.url });
 				}, true);

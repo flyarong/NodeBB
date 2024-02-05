@@ -1,26 +1,23 @@
-<div class="row dashboard">
+<div class="row dashboard px-lg-4">
 	<div class="col-12">
-		<div class="d-flex gap-2 mb-3">
-			<a class="btn btn-primary me-auto align-items-center" href="{config.relative_path}/admin/dashboard">
-				<i class="fa fa-chevron-left"></i>
-				[[admin/dashboard:back-to-dashboard]]
-			</a>
-			<form class="row row-cols-lg-auto g-3 align-items-center" method="GET">
-				<div class="col-12 d-flex align-items-center gap-2">
+		<div class="d-flex justify-content-between align-items-center mb-3">
+			<form class="d-flex flex-wrap gap-3 align-sm-items-center" method="GET">
+				<div class="d-flex align-items-center gap-2">
 					<label class="form-label mb-0" for="start">[[admin/dashboard:start]]</label>
-					<input type="date" class="form-control" id="start" name="start" value="{startDate}">
+					<input type="date" class="form-control form-control-sm w-auto" id="start" name="start" value="{startDate}">
 				</div>
-				<div class="col-12 d-flex align-items-center gap-2">
+				<div class="d-flex align-items-center gap-2">
 					<label class="form-label mb-0" for="end">[[admin/dashboard:end]]</label>
-					<input type="date" class="form-control" id="end" name="end" value="{endDate}">
+					<input type="date" class="form-control form-control-sm w-auto" id="end" name="end" value="{endDate}">
 				</div>
-				<div class="col-12">
-					<button onclick="$('form').submit();return false;"class="btn btn-primary" type="submit">Filter</button>
+				<div class="">
+					<button onclick="$('form').submit();return false;"class="btn btn-primary btn-sm" type="submit">[[admin/dashboard:filter]]</button>
 				</div>
 			</form>
+			<button id="clear-search-history" class="btn btn-sm btn-light"><i class="fa fa-trash text-danger"></i> [[admin/dashboard:clear-search-history]]</button>
 		</div>
 
-		<table class="table table-sm table-striped search-list">
+		<table class="table table-sm text-sm search-list">
 			<thead>
 				<th class="text-end">Count</th>
 				<th>Term</th>

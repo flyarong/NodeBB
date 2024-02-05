@@ -29,6 +29,8 @@ get:
                 type: boolean
               maintenanceMode:
                 type: boolean
+              postQueue:
+                type: number
               minimumTitleLength:
                 type: number
               maximumTitleLength:
@@ -107,6 +109,8 @@ get:
               disableCustomUserSkins:
                 type: boolean
               bootswatchSkin:
+                type: string
+              defaultBootswatchSkin:
                 type: string
               composer:showHelpTab:
                 type: boolean
@@ -273,3 +277,14 @@ get:
                     type: boolean
               composer-default:
                 type: object
+              fontawesome:
+                type: object
+                properties:
+                  pro:
+                    type: boolean
+                  styles:
+                    type: array
+                    items:
+                      type: string
+                  version:
+                    type: string

@@ -61,6 +61,9 @@ Settings:
     notificationType_new-group-chat:
       type: string
       description: Notification type for new group chat messages
+    notificationType_new-public-chat:
+      type: string
+      description: Notification type for new public group chat messages
     notificationType_new-reply:
       type: string
       description: Notification type for new topic replies
@@ -77,6 +80,12 @@ Settings:
     notificationType_new-topic:
       type: string
       description: Notification type for new topics
+    notificationType_new-topic-with-tag:
+      type: string
+      description: Notification type for new topics with followed tag
+    notificationType_new-topic-in-category:
+      type: string
+      description: Notification type for new topics in watched category
     notificationType_follow:
       type: string
       description: Notification type for another user following you
@@ -92,6 +101,9 @@ Settings:
     notificationType_mention:
       type: string
       description: Notification type for mentions in a post
+    notificationType_new-reward:
+      type: string
+      description: Notification type for when you earn a reward
     acpLang:
       type: string
       description: Language localisation for the admin control panel

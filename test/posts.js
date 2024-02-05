@@ -2,8 +2,7 @@
 
 
 const assert = require('assert');
-const async = require('async');
-const request = require('request-promise-native');
+
 const nconf = require('nconf');
 const path = require('path');
 const util = require('util');
@@ -23,6 +22,8 @@ const apiTopics = require('../src/api/topics');
 const meta = require('../src/meta');
 const file = require('../src/file');
 const helpers = require('./helpers');
+const utils = require('../src/utils');
+const request = require('../src/request');
 
 describe('Post\'s', () => {
 	let voterUid;
@@ -32,52 +33,26 @@ describe('Post\'s', () => {
 	let topicData;
 	let cid;
 
-	before((done) => {
-		async.series({
-			voterUid: function (next) {
-				user.create({ username: 'upvoter' }, next);
-			},
-			voteeUid: function (next) {
-				user.create({ username: 'upvotee' }, next);
-			},
-			globalModUid: function (next) {
-				user.create({ username: 'globalmod', password: 'globalmodpwd' }, next);
-			},
-			category: function (next) {
-				categories.create({
-					name: 'Test Category',
-					description: 'Test category created by testing script',
-				}, next);
-			},
-		}, (err, results) => {
-			if (err) {
-				return done(err);
-			}
+	before(async () => {
+		voterUid = await user.create({ username: 'upvoter' });
+		voteeUid = await user.create({ username: 'upvotee' });
+		globalModUid = await user.create({ username: 'globalmod', password: 'globalmodpwd' });
+		({ cid } = await categories.create({
+			name: 'Test Category',
+			description: 'Test category created by testing script',
+		}));
 
-			voterUid = results.voterUid;
-			voteeUid = results.voteeUid;
-			globalModUid = results.globalModUid;
-			cid = results.category.cid;
-
-			topics.post({
-				uid: results.voteeUid,
-				cid: results.category.cid,
-				title: 'Test Topic Title',
-				content: 'The content of test topic',
-			}, (err, data) => {
-				if (err) {
-					return done(err);
-				}
-				postData = data.postData;
-				topicData = data.topicData;
-
-				groups.join('Global Moderators', globalModUid, done);
-			});
-		});
+		({ topicData, postData } = await topics.post({
+			uid: voteeUid,
+			cid: cid,
+			title: 'Test Topic Title',
+			content: 'The content of test topic',
+		}));
+		await groups.join('Global Moderators', globalModUid);
 	});
 
 	it('should update category teaser properly', async () => {
-		const getCategoriesAsync = async () => await request(`${nconf.get('url')}/api/categories`, { json: true });
+		const getCategoriesAsync = async () => (await request.get(`${nconf.get('url')}/api/categories`, { })).body;
 		const postResult = await topics.post({ uid: globalModUid, cid: cid, title: 'topic title', content: '123456789' });
 
 		let data = await getCategoriesAsync();
@@ -113,7 +88,7 @@ describe('Post\'s', () => {
 
 		await posts.changeOwner([pid1, pid2], newUid);
 
-		assert.deepStrictEqual(await db.sortedSetScores(`tid:${postResult.topicData.tid}:posters`, [oldUid, newUid]), [0, 2]);
+		assert.deepStrictEqual(await db.sortedSetScores(`tid:${postResult.topicData.tid}:posters`, [oldUid, newUid]), [null, 2]);
 
 		assert.deepStrictEqual(await posts.isOwner([pid1, pid2], oldUid), [false, false]);
 		assert.deepStrictEqual(await posts.isOwner([pid1, pid2], newUid), [true, true]);
@@ -129,6 +104,8 @@ describe('Post\'s', () => {
 
 		assert.strictEqual(await topics.isOwner(postResult.topicData.tid, oldUid), false);
 		assert.strictEqual(await topics.isOwner(postResult.topicData.tid, newUid), true);
+
+		assert.strictEqual(await topics.getTopicField(postResult.topicData.tid, 'postercount'), 1);
 	});
 
 	it('should fail to change owner if new owner does not exist', async () => {
@@ -211,6 +188,14 @@ describe('Post\'s', () => {
 				assert.equal(data[0].usernames, 'upvoter');
 				done();
 			});
+		});
+
+		it('should fail to get upvoters if user does not have read privilege', async () => {
+			await privileges.categories.rescind(['groups:topics:read'], cid, 'guests');
+			await assert.rejects(socketPosts.getUpvoters({ uid: 0 }, [postData.pid]), {
+				message: '[[error:no-privileges]]',
+			});
+			await privileges.categories.give(['groups:topics:read'], cid, 'guests');
 		});
 
 		it('should unvote a post', async () => {
@@ -361,24 +346,14 @@ describe('Post\'s', () => {
 			assert.strictEqual(isDeleted, 1);
 		});
 
-		it('should not see post content if global mod does not have posts:view_deleted privilege', (done) => {
-			async.waterfall([
-				function (next) {
-					user.create({ username: 'global mod', password: '123456' }, next);
-				},
-				function (uid, next) {
-					groups.join('Global Moderators', uid, next);
-				},
-				function (next) {
-					privileges.categories.rescind(['groups:posts:view_deleted'], cid, 'Global Moderators', next);
-				},
-				async () => {
-					const { jar } = await helpers.loginUser('global mod', '123456');
-					const { posts } = await request(`${nconf.get('url')}/api/topic/${tid}`, { jar, json: true });
-					assert.equal(posts[1].content, '[[topic:post_is_deleted]]');
-					await privileges.categories.give(['groups:posts:view_deleted'], cid, 'Global Moderators');
-				},
-			], done);
+		it('should not see post content if global mod does not have posts:view_deleted privilege', async () => {
+			const uid = await user.create({ username: 'global mod', password: '123456' });
+			await groups.join('Global Moderators', uid);
+			await privileges.categories.rescind(['groups:posts:view_deleted'], cid, 'Global Moderators');
+			const { jar } = await helpers.loginUser('global mod', '123456');
+			const { body } = await request.get(`${nconf.get('url')}/api/topic/${tid}`, { jar });
+			assert.equal(body.posts[1].content, '[[topic:post-is-deleted]]');
+			await privileges.categories.give(['groups:posts:view_deleted'], cid, 'Global Moderators');
 		});
 
 		it('should restore a post', async () => {
@@ -605,11 +580,10 @@ describe('Post\'s', () => {
 
 		it('should not delete first diff of a post', async () => {
 			const timestamps = await posts.diffs.list(replyPid);
-			await assert.rejects(async () => {
-				await posts.diffs.delete(replyPid, timestamps[0], voterUid);
-			}, {
-				message: '[[error:invalid-data]]',
-			});
+			await assert.rejects(
+				posts.diffs.delete(replyPid, timestamps[0], voterUid),
+				{ message: '[[error:invalid-data]]' }
+			);
 		});
 
 		it('should delete a post diff', async () => {
@@ -838,32 +812,27 @@ describe('Post\'s', () => {
 			}
 		});
 
-		it('should fail to get raw post because of privilege', (done) => {
-			socketPosts.getRawPost({ uid: 0 }, pid, (err) => {
-				assert.equal(err.message, '[[error:no-privileges]]');
-				done();
-			});
+		it('should fail to get raw post because of privilege', async () => {
+			const content = await apiPosts.getRaw({ uid: 0 }, { pid });
+			assert.strictEqual(content, null);
 		});
 
-		it('should fail to get raw post because post is deleted', (done) => {
-			posts.setPostField(pid, 'deleted', 1, (err) => {
-				assert.ifError(err);
-				socketPosts.getRawPost({ uid: voterUid }, pid, (err) => {
-					assert.equal(err.message, '[[error:no-post]]');
-					done();
-				});
-			});
+		it('should fail to get raw post because post is deleted', async () => {
+			await posts.setPostField(pid, 'deleted', 1);
+			const content = await apiPosts.getRaw({ uid: voterUid }, { pid });
+			assert.strictEqual(content, null);
 		});
 
-		it('should get raw post content', (done) => {
-			posts.setPostField(pid, 'deleted', 0, (err) => {
-				assert.ifError(err);
-				socketPosts.getRawPost({ uid: voterUid }, pid, (err, postContent) => {
-					assert.ifError(err);
-					assert.equal(postContent, 'raw content');
-					done();
-				});
-			});
+		it('should allow privileged users to view the deleted post\'s raw content', async () => {
+			await posts.setPostField(pid, 'deleted', 1);
+			const content = await apiPosts.getRaw({ uid: globalModUid }, { pid });
+			assert.strictEqual(content, 'raw content');
+		});
+
+		it('should get raw post content', async () => {
+			await posts.setPostField(pid, 'deleted', 0);
+			const postContent = await apiPosts.getRaw({ uid: voterUid }, { pid });
+			assert.equal(postContent, 'raw content');
 		});
 
 		it('should get post', async () => {
@@ -871,43 +840,63 @@ describe('Post\'s', () => {
 			assert(postData);
 		});
 
-		it('should get post category', (done) => {
-			socketPosts.getCategory({ uid: voterUid }, pid, (err, postCid) => {
-				assert.ifError(err);
-				assert.equal(cid, postCid);
-				done();
-			});
+		it('should get post summary', async () => {
+			const summary = await apiPosts.getSummary({ uid: voterUid }, { pid });
+			assert(summary);
 		});
 
-		it('should error with invalid data', (done) => {
-			socketPosts.getPidIndex({ uid: voterUid }, null, (err) => {
-				assert.equal(err.message, '[[error:invalid-data]]');
-				done();
-			});
+		it('should get raw post content', async () => {
+			const postContent = await socketPosts.getRawPost({ uid: voterUid }, pid);
+			assert.equal(postContent, 'raw content');
 		});
 
-		it('should get pid index', (done) => {
-			socketPosts.getPidIndex({ uid: voterUid }, { pid: pid, tid: topicData.tid, topicPostSort: 'oldest_to_newest' }, (err, index) => {
-				assert.ifError(err);
-				assert.equal(index, 4);
-				done();
+		it('should get post summary by index', async () => {
+			const summary = await socketPosts.getPostSummaryByIndex({ uid: voterUid }, {
+				index: 1,
+				tid: topicData.tid,
 			});
+			assert(summary);
 		});
 
-		it('should get pid index in reverse', (done) => {
-			topics.reply({
+		it('should get post timestamp by index', async () => {
+			const timestamp = await socketPosts.getPostTimestampByIndex({ uid: voterUid }, {
+				index: 1,
+				tid: topicData.tid,
+			});
+			assert(utils.isNumber(timestamp));
+		});
+
+		it('should get post timestamp by index', async () => {
+			const summary = await socketPosts.getPostSummaryByPid({ uid: voterUid }, {
+				pid: pid,
+			});
+			assert(summary);
+		});
+
+		it('should get post category', async () => {
+			const postCid = await socketPosts.getCategory({ uid: voterUid }, pid);
+			assert.equal(cid, postCid);
+		});
+
+		it('should get pid index', async () => {
+			const index = await socketPosts.getPidIndex({ uid: voterUid }, { pid: pid, tid: topicData.tid, topicPostSort: 'oldest_to_newest' });
+			assert.equal(index, 4);
+		});
+
+		it('should get pid index', async () => {
+			const index = await apiPosts.getIndex({ uid: voterUid }, { pid: pid, sort: 'oldest_to_newest' });
+			assert.strictEqual(index, 4);
+		});
+
+		it('should get pid index in reverse', async () => {
+			const postData = await topics.reply({
 				uid: voterUid,
 				tid: topicData.tid,
 				content: 'raw content',
-			}, (err, postData) => {
-				assert.ifError(err);
-
-				socketPosts.getPidIndex({ uid: voterUid }, { pid: postData.pid, tid: topicData.tid, topicPostSort: 'newest_to_oldest' }, (err, index) => {
-					assert.ifError(err);
-					assert.equal(index, 1);
-					done();
-				});
 			});
+
+			const index = await apiPosts.getIndex({ uid: voterUid }, { pid: postData.pid, sort: 'newest_to_oldest' });
+			assert.equal(index, 1);
 		});
 	});
 
@@ -988,7 +977,8 @@ describe('Post\'s', () => {
 
 		it('should load queued posts', async () => {
 			({ jar } = await helpers.loginUser('globalmod', 'globalmodpwd'));
-			const { posts } = await request(`${nconf.get('url')}/api/post-queue`, { jar: jar, json: true });
+			const { body } = await request.get(`${nconf.get('url')}/api/post-queue`, { jar });
+			const { posts } = body;
 			assert.equal(posts[0].type, 'topic');
 			assert.equal(posts[0].data.content, 'queued topic content');
 			assert.equal(posts[1].type, 'reply');
@@ -1004,21 +994,24 @@ describe('Post\'s', () => {
 
 		it('should edit post in queue', async () => {
 			await socketPosts.editQueuedContent({ uid: globalModUid }, { id: queueId, content: 'newContent' });
-			const { posts } = await request(`${nconf.get('url')}/api/post-queue`, { jar: jar, json: true });
+			const { body } = await request.get(`${nconf.get('url')}/api/post-queue`, { jar });
+			const { posts } = body;
 			assert.equal(posts[1].type, 'reply');
 			assert.equal(posts[1].data.content, 'newContent');
 		});
 
 		it('should edit topic title in queue', async () => {
 			await socketPosts.editQueuedContent({ uid: globalModUid }, { id: topicQueueId, title: 'new topic title' });
-			const { posts } = await request(`${nconf.get('url')}/api/post-queue`, { jar: jar, json: true });
+			const { body } = await request.get(`${nconf.get('url')}/api/post-queue`, { jar });
+			const { posts } = body;
 			assert.equal(posts[0].type, 'topic');
 			assert.equal(posts[0].data.title, 'new topic title');
 		});
 
 		it('should edit topic category in queue', async () => {
 			await socketPosts.editQueuedContent({ uid: globalModUid }, { id: topicQueueId, cid: 2 });
-			const { posts } = await request(`${nconf.get('url')}/api/post-queue`, { jar: jar, json: true });
+			const { body } = await request.get(`${nconf.get('url')}/api/post-queue`, { jar });
+			const { posts } = body;
 			assert.equal(posts[0].type, 'topic');
 			assert.equal(posts[0].data.cid, 2);
 			await socketPosts.editQueuedContent({ uid: globalModUid }, { id: topicQueueId, cid: cid });
@@ -1038,20 +1031,10 @@ describe('Post\'s', () => {
 			});
 		});
 
-		it('should accept queued posts and submit', (done) => {
-			let ids;
-			async.waterfall([
-				function (next) {
-					db.getSortedSetRange('post:queue', 0, -1, next);
-				},
-				function (_ids, next) {
-					ids = _ids;
-					socketPosts.accept({ uid: globalModUid }, { id: ids[0] }, next);
-				},
-				function (next) {
-					socketPosts.accept({ uid: globalModUid }, { id: ids[1] }, next);
-				},
-			], done);
+		it('should accept queued posts and submit', async () => {
+			const ids = await db.getSortedSetRange('post:queue', 0, -1);
+			await socketPosts.accept({ uid: globalModUid }, { id: ids[0] });
+			await socketPosts.accept({ uid: globalModUid }, { id: ids[1] });
 		});
 
 		it('should not crash if id does not exist', (done) => {
@@ -1145,6 +1128,28 @@ describe('Post\'s', () => {
 				assert.strictEqual(count, 0);
 				assert(events);
 				assert.strictEqual(events.length, 1);
+				assert(backlinks);
+				assert.strictEqual(backlinks.length, 0);
+			});
+
+			it('should not detect backlinks if they are in quotes', async () => {
+				const content = `
+					@baris said in [ok testing backlinks](/post/32145):
+					> here is a back link to a topic
+					>
+					>
+					> This is a link to [topic 1](${nconf.get('url')}/topic/1/abcdef
+
+					This should not generate backlink
+				`;
+				const count = await topics.syncBacklinks({
+					pid: 2,
+					content: content,
+				});
+
+				const backlinks = await db.getSortedSetMembers('pid:2:backlinks');
+
+				assert.strictEqual(count, 0);
 				assert(backlinks);
 				assert.strictEqual(backlinks.length, 0);
 			});

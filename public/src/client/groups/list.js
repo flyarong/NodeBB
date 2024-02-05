@@ -10,7 +10,7 @@ define('forum/groups/list', [
 
 		// Group creation
 		$('button[data-action="new"]').on('click', function () {
-			bootbox.prompt('[[groups:new-group.group_name]]', function (name) {
+			bootbox.prompt('[[groups:new-group.group-name]]', function (name) {
 				if (name && name.length) {
 					api.post('/groups', {
 						name: name,
@@ -36,7 +36,7 @@ define('forum/groups/list', [
 			return;
 		}
 
-		infinitescroll.loadMore('groups.loadMore', {
+		infinitescroll.loadMore('/groups', {
 			sort: $('#search-sort').val(),
 			after: $('[component="groups/container"]').attr('data-nextstart'),
 		}, function (data, done) {

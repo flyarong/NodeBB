@@ -9,6 +9,8 @@ const meta = require('../meta');
 const notifications = require('../notifications');
 const privileges = require('../privileges');
 const plugins = require('../plugins');
+const translator = require('../translator');
+const user = require('./index');
 const utils = require('../utils');
 
 const UserNotifications = module.exports;
@@ -99,9 +101,10 @@ UserNotifications.getNotifications = async function (nids, uid) {
 		return [];
 	}
 
-	const [notifObjs, hasRead] = await Promise.all([
+	const [notifObjs, hasRead, userSettings] = await Promise.all([
 		notifications.getMultiple(nids),
 		db.isSortedSetMembers(`uid:${uid}:notifications:read`, nids),
+		user.getSettings(uid),
 	]);
 
 	const deletedNids = [];
@@ -119,6 +122,12 @@ UserNotifications.getNotifications = async function (nids, uid) {
 
 	await deleteUserNids(deletedNids, uid);
 	notificationData = await notifications.merge(notificationData);
+	await Promise.all(notificationData.map(async (n) => {
+		if (n && n.bodyShort) {
+			n.bodyShort = await translator.translate(n.bodyShort, userSettings.userLang);
+		}
+	}));
+
 	const result = await plugins.hooks.fire('filter:user.notifications.getNotifications', {
 		uid: uid,
 		notifications: notificationData,
@@ -205,7 +214,7 @@ UserNotifications.sendTopicNotificationToFollowers = async function (uid, topicD
 
 		const notifObj = await notifications.create({
 			type: 'new-topic',
-			bodyShort: `[[notifications:user_posted_topic, ${postData.user.displayname}, ${title}]]`,
+			bodyShort: `[[notifications:user-posted-topic, ${postData.user.displayname}, ${title}]]`,
 			bodyLong: postData.content,
 			pid: postData.pid,
 			path: `/post/${postData.pid}`,
@@ -238,7 +247,7 @@ UserNotifications.sendWelcomeNotification = async function (uid) {
 
 UserNotifications.sendNameChangeNotification = async function (uid, username) {
 	const notifObj = await notifications.create({
-		bodyShort: `[[user:username_taken_workaround, ${username}]]`,
+		bodyShort: `[[user:username-taken-workaround, ${username}]]`,
 		image: 'brand:logo',
 		nid: `username_taken:${uid}`,
 		datetime: Date.now(),

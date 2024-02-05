@@ -1,4 +1,16 @@
-<!-- IMPORT partials/breadcrumbs.tpl -->
+{{{ if isAdmin }}}
+{{{ if !enabled }}}
+<div class="alert alert-info">
+	<p>[[post-queue:enabling-help, {config.relative_path}/admin/settings/post#post-queue]]</p>
+</div>
+{{{ end }}}
+{{{ else }}}
+<div>
+	<p class="lead">[[post-queue:public-intro]]</p>
+	<p>[[post-queue:public-description]]</p>
+	<hr />
+</div>
+{{{ end }}}
 
 {{{ if (!singlePost && posts.length) }}}
 <div class="btn-toolbar justify-content-end">
@@ -30,22 +42,28 @@
 <div class="row">
 	<div class="col-12">
 		<div class="post-queue preventSlideout posts-list">
-			{{{ if (!posts.length && isAdmin) }}}
-			{{{ if !singlePost }}}
-			<div class="alert alert-info">
-				<p>[[post-queue:no-queued-posts]]</p>
-				{{{ if !enabled }}}<p>[[post-queue:enabling-help, {config.relative_path}/admin/settings/post#post-queue]]</p>{{{ end }}}
-			</div>
-			{{{ else }}}
-			<div class="alert alert-info d-flex align-items-center">
-				<p class="mb-0 me-auto">[[post-queue:no-single-post]]</p>
-				<a class="btn btn-sm btn-primary" href=".">[[post-queue:back-to-list]]</a>
-			</div>
-			{{{ end }}}
+			{{{ if !posts.length }}}
+				{{{ if !singlePost }}}
+				<div class="mx-auto">
+					<div class="d-flex flex-column gap-3 justify-content-center text-center">
+						<div class="mx-auto p-4 bg-light border rounded">
+							<i class="text-secondary fa fa-fw fa-4x fa-seedling"></i>
+						</div>
+						[[post-queue:no-queued-posts]]
+					</div>
+				</div>
+				{{{ else }}}
+				<div class="alert alert-info d-flex align-items-md-center d-flex flex-column flex-md-row">
+					<p class="mb-md-0">[[post-queue:no-single-post]]</p>
+					<div class="d-grid ms-md-auto">
+						<a class="btn btn-sm btn-primary flex-shrink text-nowrap" href=".">[[post-queue:back-to-list]]</a>
+					</div>
+				</div>
+				{{{ end }}}
 			{{{ end }}}
 
 			{{{ each posts }}}
-			<div class="card mb-3" data-id="{posts.id}">
+			<div class="card mb-3" data-id="{./id}"data-uid="{./user.uid}">
 				<div class="card-header">
 					{{{ if !singlePost }}}
 					<input type="checkbox" class="form-check-input" autocomplete="off" />
@@ -82,7 +100,7 @@
 								{{{ if posts.data.tid }}}
 								<a href="{config.relative_path}/topic/{posts.data.tid}">{posts.topic.title}</a>
 								{{{ end }}}
-								<span class="title-text">{posts.data.title}</span>
+								<span data-action="editTitle" class="title-text">{posts.data.title}</span>
 							</div>
 							{{{if !posts.data.tid}}}
 							<div class="topic-title-editable hidden">
@@ -94,7 +112,7 @@
 					<hr/>
 					<div>
 						<strong>[[post-queue:content]] <i class="fa fa-fw fa-edit" data-bs-toggle="tooltip" title="[[post-queue:content-editable]]"></i></strong>
-						<div class="post-content text-break">{posts.data.content}</div>
+						<div data-action="editContent" class="post-content text-break">{posts.data.content}</div>
 						<div class="post-content-editable hidden">
 							<textarea class="form-control w-100" style="height:300px;">{posts.data.rawContent}</textarea>
 						</div>

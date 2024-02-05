@@ -62,9 +62,6 @@ define('forum/flags/detail', [
 								Detail.reloadHistory(payload.history);
 							}).catch(alerts.error);
 						},
-						onShown: (e) => {
-							console.log(e);
-						},
 					});
 					break;
 				}
@@ -157,7 +154,7 @@ define('forum/flags/detail', [
 	};
 
 	function postAction(action, method, path) {
-		translator.translate('[[topic:post_' + action + '_confirm]]', function (msg) {
+		translator.translate('[[topic:post-' + action + '-confirm]]', function (msg) {
 			bootbox.confirm(msg, function (confirm) {
 				if (!confirm) {
 					return;

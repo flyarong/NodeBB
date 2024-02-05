@@ -32,7 +32,7 @@ define('forum/account/header', [
 		components.get('account/unfollow').on('click', () => toggleFollow('unfollow'));
 
 		components.get('account/chat').on('click', async function () {
-			const roomId = await socket.emit('modules.chats.hasPrivateChat', ajaxify.data.uid);
+			const { roomId } = await api.get(`/users/${ajaxify.data.uid}/chat`);
 			const chat = await app.require('chat');
 			if (roomId) {
 				chat.openChat(roomId);
@@ -90,7 +90,7 @@ define('forum/account/header', [
 			},
 			function () {
 				pictureCropper.show({
-					title: '[[user:upload_cover_picture]]',
+					title: '[[user:upload-cover-picture]]',
 					socketMethod: 'user.updateCover',
 					aspectRatio: NaN,
 					allowSkippingCrop: true,
@@ -146,7 +146,7 @@ define('forum/account/header', [
 	}
 
 	function removeCover() {
-		translator.translate('[[user:remove_cover_picture_confirm]]', function (translated) {
+		translator.translate('[[user:remove-cover-picture-confirm]]', function (translated) {
 			bootbox.confirm(translated, function (confirm) {
 				if (!confirm) {
 					return;

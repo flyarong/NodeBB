@@ -1,13 +1,13 @@
 'use strict';
 
 
-define('forum/chats/recent', ['alerts', 'api'], function (alerts, api) {
+define('forum/chats/recent', ['alerts', 'api', 'chat'], function (alerts, api, chat) {
 	const recent = {};
 
 	recent.init = function () {
 		require(['forum/chats'], function (Chats) {
-			$('[component="chat/recent"]')
-				.on('click', '[component="chat/recent/room"]', function (e) {
+			$('[component="chat/nav-wrapper"]')
+				.on('click', '[component="chat/recent/room"], [component="chat/public/room"]', function (e) {
 					e.stopPropagation();
 					e.preventDefault();
 					const roomId = this.getAttribute('data-roomid');
@@ -16,63 +16,45 @@ define('forum/chats/recent', ['alerts', 'api'], function (alerts, api) {
 				.on('click', '.mark-read', function (e) {
 					e.stopPropagation();
 					const chatEl = this.closest('[data-roomid]');
-					const state = !chatEl.classList.contains('unread'); // this is the new state
-					const roomId = chatEl.getAttribute('data-roomid');
-					api[state ? 'put' : 'del'](`/chats/${roomId}/state`, {}).catch((err) => {
-						alerts.error(err);
-
-						// Revert on failure
-						chatEl.classList[state ? 'remove' : 'add']('unread');
-						this.querySelector('.unread').classList[state ? 'add' : 'remove']('hidden');
-						this.querySelector('.read').classList[!state ? 'add' : 'remove']('hidden');
-					});
-
-					// Immediate feedback
-					chatEl.classList[state ? 'add' : 'remove']('unread');
-					this.querySelector('.unread').classList[!state ? 'add' : 'remove']('hidden');
-					this.querySelector('.read').classList[state ? 'add' : 'remove']('hidden');
+					chat.toggleReadState(chatEl);
 				});
 
-			$('[component="chat/recent"]').on('scroll', function () {
+			$('[component="chat/recent"]').on('scroll', utils.debounce(function () {
 				const $this = $(this);
 				const bottom = ($this[0].scrollHeight - $this.height()) * 0.9;
 				if ($this.scrollTop() > bottom) {
 					loadMoreRecentChats();
 				}
-			});
+			}, 100));
 		});
 	};
 
-	function loadMoreRecentChats() {
+	async function loadMoreRecentChats() {
 		const recentChats = $('[component="chat/recent"]');
 		if (recentChats.attr('loading')) {
 			return;
 		}
 		recentChats.attr('loading', 1);
-		socket.emit('modules.chats.getRecentChats', {
+		api.get(`/chats`, {
 			uid: ajaxify.data.uid,
 			after: recentChats.attr('data-nextstart'),
-		}, function (err, data) {
-			if (err) {
-				return alerts.error(err);
-			}
-
-			if (data && data.rooms.length) {
-				onRecentChatsLoaded(data, function () {
+		}).then(({ rooms, nextStart }) => {
+			if (rooms.length) {
+				onRecentChatsLoaded({ rooms, nextStart }, function () {
 					recentChats.removeAttr('loading');
-					recentChats.attr('data-nextstart', data.nextStart);
+					recentChats.attr('data-nextstart', nextStart);
 				});
 			} else {
 				recentChats.removeAttr('loading');
 			}
-		});
+		}).catch(alerts.error);
 	}
 
 	function onRecentChatsLoaded(data, callback) {
 		if (!data.rooms.length) {
 			return callback();
 		}
-
+		data.loadingMore = true;
 		app.parseAndTranslate('chats', 'rooms', data, function (html) {
 			$('[component="chat/recent"]').append(html);
 			html.find('.timeago').timeago();

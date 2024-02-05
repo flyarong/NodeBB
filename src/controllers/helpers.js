@@ -58,9 +58,10 @@ helpers.buildQueryString = function (query, key, value) {
 
 helpers.addLinkTags = function (params) {
 	params.res.locals.linkTags = params.res.locals.linkTags || [];
+	const page = params.page > 1 ? `?page=${params.page}` : '';
 	params.res.locals.linkTags.push({
 		rel: 'canonical',
-		href: `${url}/${params.url}`,
+		href: `${url}/${params.url}${page}`,
 	});
 
 	params.tags.forEach((rel) => {
@@ -196,7 +197,7 @@ helpers.buildCategoryBreadcrumbs = async function (cid) {
 		if (!data.disabled && !data.isSection) {
 			breadcrumbs.unshift({
 				text: String(data.name),
-				url: `${relative_path}/category/${data.slug}`,
+				url: `${url}/category/${data.slug}`,
 				cid: cid,
 			});
 		}
@@ -205,13 +206,13 @@ helpers.buildCategoryBreadcrumbs = async function (cid) {
 	if (meta.config.homePageRoute && meta.config.homePageRoute !== 'categories') {
 		breadcrumbs.unshift({
 			text: '[[global:header.categories]]',
-			url: `${relative_path}/categories`,
+			url: `${url}/categories`,
 		});
 	}
 
 	breadcrumbs.unshift({
-		text: '[[global:home]]',
-		url: `${relative_path}/`,
+		text: meta.config.homePageTitle || '[[global:home]]',
+		url: url,
 	});
 
 	return breadcrumbs;
@@ -220,15 +221,15 @@ helpers.buildCategoryBreadcrumbs = async function (cid) {
 helpers.buildBreadcrumbs = function (crumbs) {
 	const breadcrumbs = [
 		{
-			text: '[[global:home]]',
-			url: `${relative_path}/`,
+			text: meta.config.homePageTitle || '[[global:home]]',
+			url: url,
 		},
 	];
 
 	crumbs.forEach((crumb) => {
 		if (crumb) {
 			if (crumb.url) {
-				crumb.url = `${utils.isRelativeUrl(crumb.url) ? relative_path : ''}${crumb.url}`;
+				crumb.url = `${utils.isRelativeUrl(crumb.url) ? `${url}/` : ''}${crumb.url}`;
 			}
 			breadcrumbs.push(crumb);
 		}
@@ -238,10 +239,11 @@ helpers.buildBreadcrumbs = function (crumbs) {
 };
 
 helpers.buildTitle = function (pageTitle) {
-	const titleLayout = meta.config.titleLayout || '{pageTitle} | {browserTitle}';
+	pageTitle = pageTitle || '';
+	const titleLayout = meta.config.titleLayout || `${pageTitle ? '{pageTitle} | ' : ''}{browserTitle}`;
 
 	const browserTitle = validator.escape(String(meta.config.browserTitle || meta.config.title || 'NodeBB'));
-	pageTitle = pageTitle || '';
+
 	const title = titleLayout.replace('{pageTitle}', () => pageTitle).replace('{browserTitle}', () => browserTitle);
 	return title;
 };
@@ -473,8 +475,8 @@ helpers.formatApiResponse = async (statusCode, res, payload) => {
 			status: { code, message },
 			response: payload || {},
 		});
-	} else if (payload instanceof Error) {
-		const { message } = payload;
+	} else if (payload instanceof Error || typeof payload === 'string') {
+		const message = payload instanceof Error ? payload.message : payload;
 		const response = {};
 
 		// Update status code based on some common error codes
@@ -510,9 +512,10 @@ helpers.formatApiResponse = async (statusCode, res, payload) => {
 			process.stdout.write(payload.stack);
 		}
 		res.status(statusCode).json(returnPayload);
-	} else if (!payload) {
+	} else {
 		// Non-2xx statusCode, generate predefined error
-		const returnPayload = await helpers.generateError(statusCode, null, res);
+		const message = payload ? String(payload) : null;
+		const returnPayload = await helpers.generateError(statusCode, message, res);
 		res.status(statusCode).json(returnPayload);
 	}
 };

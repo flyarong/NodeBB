@@ -80,22 +80,28 @@ module.exports = function (Topics) {
 		data = await plugins.hooks.fire('filter:topic.post', data);
 		const { uid } = data;
 
-		data.title = String(data.title).trim();
-		data.tags = data.tags || [];
-		data.content = String(data.content || '').trimEnd();
-
-		Topics.checkTitle(data.title);
-		await Topics.validateTags(data.tags, data.cid, uid);
-		data.tags = await Topics.filterTags(data.tags, data.cid);
-		if (!data.fromQueue) {
-			Topics.checkContent(data.content);
-		}
-
-		const [categoryExists, canCreate, canTag] = await Promise.all([
+		const [categoryExists, canCreate, canTag, isAdmin] = await Promise.all([
 			categories.exists(data.cid),
 			privileges.categories.can('topics:create', data.cid, uid),
 			privileges.categories.can('topics:tag', data.cid, uid),
+			privileges.users.isAdministrator(uid),
 		]);
+
+		data.title = String(data.title).trim();
+		data.tags = data.tags || [];
+		data.content = String(data.content || '').trimEnd();
+		if (!isAdmin) {
+			Topics.checkTitle(data.title);
+		}
+
+		await Topics.validateTags(data.tags, data.cid, uid);
+		data.tags = await Topics.filterTags(data.tags, data.cid);
+		if (!data.fromQueue && !isAdmin) {
+			Topics.checkContent(data.content);
+			if (!await posts.canUserPostContentWithLinks(uid, data.content)) {
+				throw new Error(`[[error:not-enough-reputation-to-post-links, ${meta.config['min:rep:post-links']}]]`);
+			}
+		}
 
 		if (!categoryExists) {
 			throw new Error('[[error:no-category]]');
@@ -146,6 +152,8 @@ module.exports = function (Topics) {
 
 		if (parseInt(uid, 10) && !topicData.scheduled) {
 			user.notifications.sendTopicNotificationToFollowers(uid, topicData, postData);
+			Topics.notifyTagFollowers(postData, uid);
+			categories.notifyCategoryFollowers(postData, uid);
 		}
 
 		return {
@@ -159,7 +167,10 @@ module.exports = function (Topics) {
 		const { tid } = data;
 		const { uid } = data;
 
-		const topicData = await Topics.getTopicData(tid);
+		const [topicData, isAdmin] = await Promise.all([
+			Topics.getTopicData(tid),
+			privileges.users.isAdministrator(uid),
+		]);
 
 		await canReply(data, topicData);
 
@@ -168,9 +179,12 @@ module.exports = function (Topics) {
 		await guestHandleValid(data);
 		data.content = String(data.content || '').trimEnd();
 
-		if (!data.fromQueue) {
+		if (!data.fromQueue && !isAdmin) {
 			await user.isReadyToPost(uid, data.cid);
 			Topics.checkContent(data.content);
+			if (!await posts.canUserPostContentWithLinks(uid, data.content)) {
+				throw new Error(`[[error:not-enough-reputation-to-post-links, ${meta.config['min:rep:post-links']}]]`);
+			}
 		}
 
 		// For replies to scheduled topics, don't have a timestamp older than topic's itself
@@ -196,9 +210,9 @@ module.exports = function (Topics) {
 
 			Topics.notifyFollowers(postData, uid, {
 				type: 'new-reply',
-				bodyShort: translator.compile('notifications:user_posted_to', displayname, postData.topic.title),
+				bodyShort: translator.compile('notifications:user-posted-to', displayname, postData.topic.title),
 				nid: `new_post:tid:${postData.topic.tid}:pid:${postData.pid}:uid:${uid}`,
-				mergeId: `notifications:user_posted_to|${postData.topic.tid}`,
+				mergeId: `notifications:user-posted-to|${postData.topic.tid}`,
 			});
 		}
 
@@ -209,8 +223,7 @@ module.exports = function (Topics) {
 	};
 
 	async function onNewPost(postData, data) {
-		const { tid } = postData;
-		const { uid } = postData;
+		const { tid, uid } = postData;
 		await Topics.markCategoryUnreadForAll(tid);
 		await Topics.markAsRead([tid], uid);
 		const [
@@ -218,7 +231,7 @@ module.exports = function (Topics) {
 			topicInfo,
 		] = await Promise.all([
 			posts.getUserInfoForPosts([postData.uid], uid),
-			Topics.getTopicFields(tid, ['tid', 'uid', 'title', 'slug', 'cid', 'postcount', 'mainPid', 'scheduled']),
+			Topics.getTopicFields(tid, ['tid', 'uid', 'title', 'slug', 'cid', 'postcount', 'mainPid', 'scheduled', 'tags']),
 			Topics.addParentPosts([postData]),
 			Topics.syncBacklinks(postData),
 			posts.parsePost(postData),

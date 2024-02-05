@@ -1,10 +1,11 @@
 {
+	"widgets": "Widgets",
 	"available": "Dostupné miniaplikace",
 	"explanation": "Vyberte si miniaplikaci z vysouvací nabídky a přetáhněte ji do oblasti šablony miniaplikace nalevo.",
 	"none-installed": "Nebyly nalezeny žádné miniaplikace! Aktivujte zásuvný modul miniaplikace v ovládacím panelu <a href=\"%1\">zásuvné moduly</a>.",
 	"clone-from": "Klonovat miniaplikaci z",
 	"containers.available": "Dostupné moduly",
-	"containers.explanation": "Přetáhněte na jakoukoliv aktivní miniaplikaci",
+	"containers.explanation": "Přetáhněte a pusťte na libovolnou miniaplikaci",
 	"containers.none": "Nic",
 	"container.well": "Well",
 	"container.jumbotron": "Jumbotron",
@@ -26,5 +27,9 @@
 	"container.placeholder": "Přesuňte sem kontejner nebo zadejte HTML",
 	"show-to-groups": "Zobrazit ve skupinách",
 	"hide-from-groups": "Skrýt ve skupinách",
-	"hide-on-mobile": "Skrýt na mobilu"
+	"start-date": "Start date",
+	"end-date": "End date",
+	"hide-on-mobile": "Skrýt na mobilu",
+	"hide-drafts": "Hide drafts",
+	"show-drafts": "Show drafts"
 }

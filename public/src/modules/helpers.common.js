@@ -27,6 +27,10 @@ module.exports = function (utils, Benchpress, relative_path) {
 		increment,
 		generateRepliedTo,
 		generateWrote,
+		isoTimeToLocaleString,
+		shouldHideReplyContainer,
+		humanReadableNumber,
+		formattedNumber,
 		register,
 		__escape: identity,
 	};
@@ -93,15 +97,16 @@ module.exports = function (utils, Benchpress, relative_path) {
 		return `<span class="icon d-inline-flex justify-content-center align-items-center align-middle ${rounded}" style="${generateCategoryBackground(category)} width:${size}; height: ${size}; font-size: ${parseInt(size, 10) / 2}px;">${category.icon ? `<i class="fa fa-fw ${category.icon}"></i>` : ''}</span>`;
 	}
 
-	function buildCategoryLabel(category, className = '') {
+	function buildCategoryLabel(category, tag = 'a', className = '') {
 		if (!category) {
 			return '';
 		}
 
-		return `<span class="badge px-1 ${className}" style="color: ${category.color};background-color: ${category.bgColor};border-color: ${category.bgColor}!important;">
+		const href = tag === 'a' ? `href="${relative_path}/category/${category.slug}"` : '';
+		return `<${tag} ${href} class="badge px-1 text-truncate text-decoration-none ${className}" style="color: ${category.color};background-color: ${category.bgColor};border-color: ${category.bgColor}!important; max-width: 70vw;">
 			${category.icon && category.icon !== 'fa-nbb-none' ? `<i class="fa fa-fw ${category.icon}"></i>` : ''}
 			${category.name}
-		</span>`;
+		</${tag}>`;
 	}
 
 	function generateCategoryBackground(category) {
@@ -169,13 +174,14 @@ module.exports = function (utils, Benchpress, relative_path) {
 		return '';
 	}
 
-	function spawnPrivilegeStates(member, privileges) {
+	function spawnPrivilegeStates(member, privileges, types) {
 		const states = [];
 		for (const priv in privileges) {
 			if (privileges.hasOwnProperty(priv)) {
 				states.push({
 					name: priv,
 					state: privileges[priv],
+					type: types[priv],
 				});
 			}
 		}
@@ -189,7 +195,7 @@ module.exports = function (utils, Benchpress, relative_path) {
 				(member === 'Global Moderators' && globalModDisabled.includes(priv.name));
 
 			return `
-				<td data-privilege="${priv.name}" data-value="${priv.state}">
+				<td data-privilege="${priv.name}" data-value="${priv.state}" data-type="${priv.type}">
 					<div class="form-check text-center">
 						<input class="form-check-input float-none" autocomplete="off" type="checkbox"${(priv.state ? ' checked' : '')}${(disabled ? ' disabled="disabled"' : '')} />
 					</div>
@@ -320,21 +326,44 @@ module.exports = function (utils, Benchpress, relative_path) {
 	}
 
 	function increment(value, inc) {
-		return value + parseInt(inc, 10);
+		return String(value + parseInt(inc, 10));
 	}
 
 	function generateRepliedTo(post, timeagoCutoff) {
-		const username = post.parent && post.parent.username ?
-			post.parent.username : '[[global:guest]]';
+		const displayname = post.parent && post.parent.displayname ?
+			post.parent.displayname : '[[global:guest]]';
 		const isBeforeCutoff = post.timestamp < (Date.now() - (timeagoCutoff * oneDayInMs));
 		const langSuffix = isBeforeCutoff ? 'on' : 'ago';
-		return `[[topic:replied-to-user-${langSuffix}, ${post.toPid}, ${relative_path}/post/${post.toPid}, ${username}, ${relative_path}/post/${post.pid}, ${post.timestampISO}]]`;
+		return `[[topic:replied-to-user-${langSuffix}, ${post.toPid}, ${relative_path}/post/${post.toPid}, ${displayname}, ${relative_path}/post/${post.pid}, ${post.timestampISO}]]`;
 	}
 
 	function generateWrote(post, timeagoCutoff) {
 		const isBeforeCutoff = post.timestamp < (Date.now() - (timeagoCutoff * oneDayInMs));
 		const langSuffix = isBeforeCutoff ? 'on' : 'ago';
 		return `[[topic:wrote-${langSuffix}, ${relative_path}/post/${post.pid}, ${post.timestampISO}]]`;
+	}
+
+	function isoTimeToLocaleString(isoTime, locale = 'en-GB') {
+		return new Date(isoTime).toLocaleString([locale], {
+			dateStyle: 'short',
+			timeStyle: 'short',
+		}).replace(/,/g, '&#44;');
+	}
+
+	function shouldHideReplyContainer(post) {
+		if (post.replies.count <= 0 || post.replies.hasSingleImmediateReply) {
+			return true;
+		}
+
+		return false;
+	}
+
+	function humanReadableNumber(number, toFixed = 1) {
+		return utils.makeNumberHumanReadable(number, toFixed);
+	}
+
+	function formattedNumber(number) {
+		return utils.addCommas(number);
 	}
 
 	function register() {

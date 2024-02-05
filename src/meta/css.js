@@ -1,14 +1,17 @@
 'use strict';
 
+const _ = require('lodash');
 const winston = require('winston');
 const nconf = require('nconf');
 const fs = require('fs');
 const path = require('path');
+const { mkdirp } = require('mkdirp');
 
 const plugins = require('../plugins');
 const db = require('../database');
 const file = require('../file');
 const minifier = require('./minifier');
+const utils = require('../utils');
 
 const CSS = module.exports;
 
@@ -31,12 +34,11 @@ const buildImports = {
 	},
 	admin: function (source) {
 		return [
-			'@import "admin/vars";',
-			'@import "bootswatch/dist/materia/variables";',
+			'@import "admin/overrides";',
 			'@import "bootstrap/scss/bootstrap";',
-			'@import "bootswatch/dist/materia/bootswatch";',
 			'@import "mixins";',
-			'@import "fontawesome";',
+			'@import "fontawesome/loader";',
+			getFontawesomeStyle(),
 			'@import "@adactive/bootstrap-tagsinput/src/bootstrap-tagsinput";',
 			'@import "generics";',
 			'@import "responsive-utilities";',
@@ -50,9 +52,19 @@ const buildImports = {
 function boostrapImport(themeData) {
 	// see https://getbootstrap.com/docs/5.0/customize/sass/#variable-defaults
 	// for an explanation of this order and https://bootswatch.com/help/
-	const { bootswatchSkin } = themeData;
+	const { bootswatchSkin, bsVariables, isCustomSkin } = themeData;
+	function bsvariables() {
+		if (bootswatchSkin) {
+			if (isCustomSkin) {
+				return themeData._variables || '';
+			}
+			return `@import "bootswatch/dist/${bootswatchSkin}/variables";`;
+		}
+		return bsVariables;
+	}
+
 	return [
-		bootswatchSkin ? `@import "bootswatch/dist/${bootswatchSkin}/variables";` : '',
+		bsvariables(),
 		'@import "bootstrap/scss/mixins/banner";',
 		'@include bsBanner("");',
 		// functions must be included first
@@ -64,6 +76,7 @@ function boostrapImport(themeData) {
 
 		// bs files
 		'@import "bootstrap/scss/variables";',
+		'@import "bootstrap/scss/variables-dark";',
 		'@import "bootstrap/scss/maps";',
 		'@import "bootstrap/scss/mixins";',
 		'@import "bootstrap/scss/utilities";',
@@ -110,13 +123,35 @@ function boostrapImport(themeData) {
 		'@import "bootstrap/scss/utilities/api";',
 		// scss-docs-end import-stack
 
-		'@import "fontawesome";',
+		'@import "fontawesome/loader";',
+		getFontawesomeStyle(),
+
 		'@import "mixins";', // core mixins
 		'@import "generics";',
 		'@import "client";', // core page styles
 		'@import "./theme";', // rest of the theme scss
-		bootswatchSkin ? `@import "bootswatch/dist/${bootswatchSkin}/bootswatch";` : '',
+		bootswatchSkin && !isCustomSkin ? `@import "bootswatch/dist/${bootswatchSkin}/bootswatch";` : '',
 	].join('\n');
+}
+
+
+function getFontawesomeStyle() {
+	const styles = utils.getFontawesomeStyles();
+	return styles.map(style => `@import "fontawesome/style-${style}";`).join('\n');
+}
+
+async function copyFontAwesomeFiles() {
+	await mkdirp(path.join(__dirname, '../../build/public/fontawesome/webfonts'));
+	const fonts = await fs.promises.opendir(path.join(utils.getFontawesomePath(), '/webfonts'));
+	const copyOperations = [];
+	for await (const file of fonts) {
+		if (file.isFile() && file.name.match(/\.(woff2|ttf|eot)?$/)) { // there shouldn't be any legacy eot files, but just in case we'll allow it
+			copyOperations.push(
+				fs.promises.copyFile(path.join(fonts.path, file.name), path.join(__dirname, '../../build/public/fontawesome/webfonts/', file.name))
+			);
+		}
+	}
+	await Promise.all(copyOperations);
 }
 
 async function filterMissingFiles(filepaths) {
@@ -166,28 +201,38 @@ async function getBundleMetadata(target) {
 	const paths = [
 		path.join(__dirname, '../../node_modules'),
 		path.join(__dirname, '../../public/scss'),
-		path.join(__dirname, '../../public/vendor/fontawesome/scss'),
+		path.join(__dirname, '../../public/fontawesome/scss'),
+		path.join(utils.getFontawesomePath(), 'scss'),
 	];
 
 	// Skin support
 	let skin;
+	let isCustomSkin = false;
 	if (target.startsWith('client-')) {
-		skin = target.split('-')[1];
-
-		if (CSS.supportedSkins.includes(skin)) {
-			target = 'client';
+		skin = target.split('-').slice(1).join('-');
+		const isBootswatchSkin = CSS.supportedSkins.includes(skin);
+		isCustomSkin = !isBootswatchSkin && await CSS.isCustomSkin(skin);
+		target = 'client';
+		if (!isBootswatchSkin && !isCustomSkin) {
+			skin = ''; // invalid skin or deleted use default
 		}
 	}
 
 	let themeData = null;
 	if (target === 'client') {
-		themeData = await db.getObjectFields('config', ['theme:type', 'theme:id', 'bootswatchSkin']);
+		themeData = await db.getObjectFields('config', ['theme:type', 'theme:id', 'useBSVariables', 'bsVariables']);
 		const themeId = (themeData['theme:id'] || 'nodebb-theme-harmony');
-		const baseThemePath = path.join(nconf.get('themes_path'), (themeData['theme:type'] && themeData['theme:type'] === 'local' ? themeId : 'nodebb-theme-harmony'));
+		const baseThemePath = path.join(
+			nconf.get('themes_path'),
+			(themeData['theme:type'] && themeData['theme:type'] === 'local' ? themeId : 'nodebb-theme-harmony')
+		);
 		paths.unshift(baseThemePath);
 		paths.unshift(`${baseThemePath}/node_modules`);
-
-		themeData.bootswatchSkin = skin || themeData.bootswatchSkin;
+		themeData.bsVariables = parseInt(themeData.useBSVariables, 10) === 1 ? (themeData.bsVariables || '') : '';
+		themeData.bootswatchSkin = skin;
+		themeData.isCustomSkin = isCustomSkin;
+		const customSkin = isCustomSkin ? await CSS.getCustomSkin(skin) : null;
+		themeData._variables = customSkin && customSkin._variables;
 	}
 
 	const [scssImports, cssImports, acpScssImports] = await Promise.all([
@@ -207,6 +252,83 @@ async function getBundleMetadata(target) {
 	return { paths: paths, imports: imports };
 }
 
+CSS.getSkinSwitcherOptions = async function (uid) {
+	const user = require('../user');
+	const meta = require('./index');
+	const [userSettings, customSkins] = await Promise.all([
+		user.getSettings(uid),
+		CSS.getCustomSkins(),
+	]);
+
+	const foundCustom = customSkins.find(skin => skin.value === meta.config.bootswatchSkin);
+	const defaultSkin = foundCustom ?
+		foundCustom.name :
+		_.capitalize(meta.config.bootswatchSkin) || '[[user:no-skin]]';
+
+	const defaultSkins = [
+		{ name: `[[user:default, ${defaultSkin}]]`, value: '', selected: userSettings.bootswatchSkin === '' },
+		{ name: '[[user:no-skin]]', value: 'noskin', selected: userSettings.bootswatchSkin === 'noskin' },
+	];
+	const lightSkins = [
+		'cerulean', 'cosmo', 'flatly', 'journal', 'litera',
+		'lumen', 'lux', 'materia', 'minty', 'morph', 'pulse', 'sandstone',
+		'simplex', 'sketchy', 'spacelab', 'united', 'yeti', 'zephyr',
+	];
+	const darkSkins = [
+		'cyborg', 'darkly', 'quartz', 'slate', 'solar', 'superhero', 'vapor',
+	];
+	function parseSkins(skins) {
+		skins = skins.map(skin => ({
+			name: _.capitalize(skin),
+			value: skin,
+		}));
+		skins.forEach((skin) => {
+			skin.selected = skin.value === userSettings.bootswatchSkin;
+		});
+		return skins;
+	}
+	return await plugins.hooks.fire('filter:meta.css.getSkinSwitcherOptions', {
+		default: defaultSkins,
+		custom: customSkins.map(s => ({ ...s, selected: s.value === userSettings.bootswatchSkin })),
+		light: parseSkins(lightSkins),
+		dark: parseSkins(darkSkins),
+	});
+};
+
+CSS.getCustomSkins = async function (opts = {}) {
+	const meta = require('./index');
+	const slugify = require('../slugify');
+	const { loadVariables } = opts;
+	const customSkins = await meta.settings.get('custom-skins');
+	const returnSkins = [];
+	if (customSkins && Array.isArray(customSkins['custom-skin-list'])) {
+		customSkins['custom-skin-list'].forEach((customSkin) => {
+			if (customSkin) {
+				returnSkins.push({
+					name: customSkin['custom-skin-name'],
+					value: slugify(customSkin['custom-skin-name']),
+					_variables: loadVariables ? customSkin._variables : undefined,
+				});
+			}
+		});
+	}
+	return returnSkins;
+};
+
+CSS.isSkinValid = async function (skin) {
+	return CSS.supportedSkins.includes(skin) || await CSS.isCustomSkin(skin);
+};
+
+CSS.isCustomSkin = async function (skin) {
+	const skins = await CSS.getCustomSkins();
+	return !!skins.find(s => s.value === skin);
+};
+
+CSS.getCustomSkin = async function (skin) {
+	const skins = await CSS.getCustomSkins({ loadVariables: true });
+	return skins.find(s => s.value === skin);
+};
+
 CSS.buildBundle = async function (target, fork) {
 	if (target === 'client') {
 		let files = await fs.promises.readdir(path.join(__dirname, '../../build/public'));
@@ -221,6 +343,7 @@ CSS.buildBundle = async function (target, fork) {
 	await Promise.all([
 		fs.promises.writeFile(path.join(__dirname, '../../build/public', `${target}.css`), ltr.code),
 		fs.promises.writeFile(path.join(__dirname, '../../build/public', `${target}-rtl.css`), rtl.code),
+		copyFontAwesomeFiles(),
 	]);
 	return [ltr.code, rtl.code];
 };

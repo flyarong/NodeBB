@@ -5,7 +5,7 @@
 	"uptime-seconds": "Saniyede Bir Çalışma Zamanı",
 	"uptime-days": "Günde Bir Çalışma Zamanı",
 
-	"mongo": "Mongo",
+	"mongo": "MongoDB",
 	"mongo.version": "MongoDB Sürümü",
 	"mongo.storage-engine": "Depolama Motoru",
 	"mongo.collections": "Koleksiyonlar",
@@ -17,7 +17,7 @@
 	"mongo.file-size": "Dosya Boyutu",
 	"mongo.resident-memory": "Yerleşik Bellek",
 	"mongo.virtual-memory": "Sanal Bellek",
-	"mongo.mapped-memory": "Planlanan Bellek",
+	"mongo.mapped-memory": "Mapped Memory",
 	"mongo.bytes-in": "alınan bayt",
 	"mongo.bytes-out": "gönderilen bayt",
 	"mongo.num-requests": "İsteklerin Sayısı",

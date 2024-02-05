@@ -113,7 +113,6 @@ define('forum/post-queue', [
 				if (subselector) {
 					const action = subselector.getAttribute('data-action');
 					const uid = subselector.closest('[data-uid]').getAttribute('data-uid');
-
 					switch (action) {
 						case 'editCategory': {
 							const categoryEl = e.target.closest('[data-id]').querySelector('.topic-category');
@@ -138,15 +137,15 @@ define('forum/post-queue', [
 							break;
 
 						case 'delete-account':
-							AccountsDelete.account(uid, ajaxify.refresh);
+							AccountsDelete.account(uid, ajaxify.go.bind(null, 'post-queue'));
 							break;
 
 						case 'delete-content':
-							AccountsDelete.content(uid, ajaxify.refresh);
+							AccountsDelete.content(uid, ajaxify.go.bind(null, 'post-queue'));
 							break;
 
 						case 'delete-all':
-							AccountsDelete.purge(uid, ajaxify.refresh);
+							AccountsDelete.purge(uid, ajaxify.go.bind(null, 'post-queue'));
 							break;
 
 						default:

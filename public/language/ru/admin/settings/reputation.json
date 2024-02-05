@@ -11,6 +11,7 @@
 	"downvotes-per-day": "Количество отрицательных голосов в день (установите 0 для отключения ограничения)",
 	"downvotes-per-user-per-day": "Количество отрицательных голосов за участника в день (установите 0 для неограниченного количества отрицательных голосов)",
 	"min-rep-chat": "Minimum reputation to send chat messages",
+	"min-rep-post-links": "Minimum reputation to post links",
 	"min-rep-flag": "Минимальная репутация для отправки жалобы на сообщение",
 	"min-rep-website": "Минимальная репутация, чтобы заполнить поле «Веб-сайт» в профиле пользователя",
 	"min-rep-aboutme": "Минимальная репутация, чтобы добавить «Обо мне» в профиль пользователя",
@@ -27,5 +28,5 @@
 	"flags.action-on-resolve": "Do the following when a flag is resolved",
 	"flags.action-on-reject": "Do the following when a flag is rejected",
 	"flags.action.nothing": "Do nothing",
-	"flags.action.rescind": "Rescind the notification send to moderators/administrators"
+	"flags.action.rescind": "Rescind the notification sent to moderators/administrators"
 }

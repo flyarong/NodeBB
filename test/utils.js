@@ -179,9 +179,9 @@ describe('Utility Methods', () => {
 				assert.strictEqual(err.message, expectedError);
 			}
 		}
-		check('123456', '[[user:weak_password]]');
-		check('', '[[user:change_password_error]]');
-		check('asd', '[[reset_password:password_too_short]]');
+		check('123456', '[[user:weak-password]]');
+		check('', '[[user:change-password-error]]');
+		check('asd', '[[reset_password:password-too-short]]');
 		check(new Array(513).fill('a').join(''), '[[error:password-too-long]]');
 		utils.assertPasswordValidity('Yzsh31j!a', zxcvbn);
 	});
@@ -238,7 +238,7 @@ describe('Utility Methods', () => {
 	});
 
 	it('should make number human readable', (done) => {
-		assert.equal(utils.makeNumberHumanReadable(null), null);
+		assert.equal(utils.makeNumberHumanReadable(null), 'null');
 		done();
 	});
 
@@ -292,11 +292,6 @@ describe('Utility Methods', () => {
 			userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Android /58.0.3029.96 Safari/537.36',
 		};
 		assert.equal(utils.isAndroidBrowser(), true);
-		done();
-	});
-
-	it('should return false if not touch device', (done) => {
-		assert(!utils.isTouchDevice());
 		done();
 	});
 

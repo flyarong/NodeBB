@@ -10,6 +10,7 @@ const plugins = require('../plugins');
 const translator = require('../translator');
 const languages = require('../languages');
 const { generateToken } = require('../middleware/csrf');
+const utils = require('../utils');
 
 const apiController = module.exports;
 
@@ -19,6 +20,9 @@ const asset_base_url = nconf.get('asset_base_url');
 const socketioTransports = nconf.get('socket.io:transports') || ['polling', 'websocket'];
 const socketioOrigins = nconf.get('socket.io:origins');
 const websocketAddress = nconf.get('socket.io:address') || '';
+const fontawesome_pro = nconf.get('fontawesome:pro') || false;
+const fontawesome_styles = utils.getFontawesomeStyles();
+const fontawesome_version = utils.getFontawesomeVersion();
 
 apiController.loadConfig = async function (req) {
 	const config = {
@@ -31,6 +35,7 @@ apiController.loadConfig = async function (req) {
 		titleLayout: (meta.config.titleLayout || '{pageTitle} | {browserTitle}').replace(/{/g, '&#123;').replace(/}/g, '&#125;'),
 		showSiteTitle: meta.config.showSiteTitle === 1,
 		maintenanceMode: meta.config.maintenanceMode === 1,
+		postQueue: meta.config.postQueue,
 		minimumTitleLength: meta.config.minimumTitleLength,
 		maximumTitleLength: meta.config.maximumTitleLength,
 		minimumPostLength: meta.config.minimumPostLength,
@@ -77,7 +82,7 @@ apiController.loadConfig = async function (req) {
 			enabled: meta.config.cookieConsentEnabled === 1,
 			message: translator.escape(validator.escape(meta.config.cookieConsentMessage || '[[global:cookies.message]]')).replace(/\\/g, '\\\\'),
 			dismiss: translator.escape(validator.escape(meta.config.cookieConsentDismiss || '[[global:cookies.accept]]')).replace(/\\/g, '\\\\'),
-			link: translator.escape(validator.escape(meta.config.cookieConsentLink || '[[global:cookies.learn_more]]')).replace(/\\/g, '\\\\'),
+			link: translator.escape(validator.escape(meta.config.cookieConsentLink || '[[global:cookies.learn-more]]')).replace(/\\/g, '\\\\'),
 			link_url: translator.escape(validator.escape(meta.config.cookieConsentLinkUrl || 'https://www.cookiesandyou.com')).replace(/\\/g, '\\\\'),
 		},
 		thumbs: {
@@ -86,6 +91,11 @@ apiController.loadConfig = async function (req) {
 		iconBackgrounds: await user.getIconBackgrounds(req.uid),
 		emailPrompt: meta.config.emailPrompt,
 		useragent: req.useragent,
+		fontawesome: {
+			pro: fontawesome_pro,
+			styles: fontawesome_styles,
+			version: fontawesome_version,
+		},
 	};
 
 	let settings = config;
@@ -98,7 +108,7 @@ apiController.loadConfig = async function (req) {
 	}
 
 	// Handle old skin configs
-	const oldSkins = ['noskin', 'default'];
+	const oldSkins = ['default'];
 	settings.bootswatchSkin = oldSkins.includes(settings.bootswatchSkin) ? '' : settings.bootswatchSkin;
 
 	config.usePagination = settings.usePagination;
@@ -113,7 +123,14 @@ apiController.loadConfig = async function (req) {
 	config.categoryTopicSort = settings.categoryTopicSort || config.categoryTopicSort;
 	config.topicSearchEnabled = settings.topicSearchEnabled || false;
 	config.disableCustomUserSkins = meta.config.disableCustomUserSkins === 1;
-	config.bootswatchSkin = (meta.config.disableCustomUserSkins !== 1 && settings.bootswatchSkin && settings.bootswatchSkin !== '') ? settings.bootswatchSkin : '';
+	config.defaultBootswatchSkin = config.bootswatchSkin;
+	if (!config.disableCustomUserSkins && settings.bootswatchSkin) {
+		if (settings.bootswatchSkin === 'noskin') {
+			config.bootswatchSkin = '';
+		} else if (settings.bootswatchSkin !== '' && await meta.css.isSkinValid(settings.bootswatchSkin)) {
+			config.bootswatchSkin = settings.bootswatchSkin;
+		}
+	}
 
 	// Overrides based on privilege
 	config.disableChatMessageEditing = isAdminOrGlobalMod ? false : config.disableChatMessageEditing;

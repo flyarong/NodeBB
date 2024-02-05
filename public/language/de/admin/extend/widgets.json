@@ -1,16 +1,17 @@
 {
+	"widgets": "Widgets",
 	"available": "Verfügbare Widgets",
 	"explanation": "Wähle ein Widget aus dem Dropdown-Menü aus und ziehe es per Drag-and-Drop in den Widget-Bereich einer Vorlage auf der linken Seite.",
 	"none-installed": "Keine Widgets gefunden! Aktiviere das Widget Essentials-Plugin in der <a href=\"%1\">Plugin</a>-Systemsteuerung.",
 	"clone-from": "Klone Widget von",
 	"containers.available": "Verfügbare Container",
-	"containers.explanation": "Per Drag-and-Drop auf ein beliebiges aktives Widget ziehen",
+	"containers.explanation": "Drag and Drop auf ein beliebiges Widget",
 	"containers.none": "Nichts",
 	"container.well": "Well",
 	"container.jumbotron": "Jumbotron",
-	"container.card": "Card",
-	"container.card-header": "Card Header",
-	"container.card-body": "Card Body",
+	"container.card": "Karte",
+	"container.card-header": "Karten-Kopfzeile",
+	"container.card-body": "Karten-Körper",
 	"container.alert": "Alarm",
 
 	"alert.confirm-delete": "Möchtest Du dieses Widget wirklich löschen?",
@@ -26,5 +27,9 @@
 	"container.placeholder": "Ziehe einen Container per Drag-and-Drop oder gebe hier HTML ein.",
 	"show-to-groups": "Gruppen anzeigen",
 	"hide-from-groups": "Vor Gruppen verstecken",
-	"hide-on-mobile": "Auf dem Handy verstecken"
+	"start-date": "Anfangsdatum",
+	"end-date": "Enddatum",
+	"hide-on-mobile": "Auf dem Handy verstecken",
+	"hide-drafts": "Entwürfe ausblenden",
+	"show-drafts": "Entwürfe anzeigen"
 }

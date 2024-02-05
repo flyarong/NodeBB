@@ -1,10 +1,11 @@
 {
+	"widgets": "Widgets",
 	"available": "Pieejamie logrīki",
 	"explanation": "Atlasīt spraudni no nolaižamās izvēlnes, un to vilkt un nomest uz veidnes spraudņa lauku kreisajā pusē.",
 	"none-installed": "No widgets found! Activate the widget essentials plugin in the <a href=\"%1\">plugins</a> control panel.",
 	"clone-from": "Klonēt logrīkus no",
 	"containers.available": "Pieejamās tvertnes",
-	"containers.explanation": "Vilkt un nomest uz jebkura aktīvā logrīka",
+	"containers.explanation": "Drag and drop on top of any widget",
 	"containers.none": "Nav",
 	"container.well": "Labi",
 	"container.jumbotron": "Jumbotron",
@@ -26,5 +27,9 @@
 	"container.placeholder": "Drag and drop a container or enter HTML here.",
 	"show-to-groups": "Show to groups",
 	"hide-from-groups": "Hide from groups",
-	"hide-on-mobile": "Hide on mobile"
+	"start-date": "Start date",
+	"end-date": "End date",
+	"hide-on-mobile": "Hide on mobile",
+	"hide-drafts": "Hide drafts",
+	"show-drafts": "Show drafts"
 }

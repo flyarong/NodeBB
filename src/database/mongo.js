@@ -59,8 +59,8 @@ mongoModule.questions = [
 	},
 ];
 
-mongoModule.init = async function () {
-	client = await connection.connect(nconf.get('mongo'));
+mongoModule.init = async function (opts) {
+	client = await connection.connect(opts || nconf.get('mongo'));
 	mongoModule.client = client.db();
 };
 
@@ -144,10 +144,9 @@ mongoModule.info = async function (db) {
 		indexSizes: collectionInfo.indexSizes,
 	}));
 
-	stats.mem = serverStatus.mem || { resident: 0, virtual: 0, mapped: 0 };
+	stats.mem = serverStatus.mem || { resident: 0, virtual: 0 };
 	stats.mem.resident = (stats.mem.resident / 1024).toFixed(3);
 	stats.mem.virtual = (stats.mem.virtual / 1024).toFixed(3);
-	stats.mem.mapped = (stats.mem.mapped / 1024).toFixed(3);
 	stats.collectionData = listCollections;
 	stats.network = serverStatus.network || { bytesIn: 0, bytesOut: 0, numRequests: 0 };
 	stats.network.bytesIn = (stats.network.bytesIn / scale).toFixed(3);
@@ -170,11 +169,18 @@ mongoModule.info = async function (db) {
 
 async function getCollectionStats(db) {
 	const items = await db.listCollections().toArray();
-	return await Promise.all(items.map(collection => db.collection(collection.name).stats()));
+	return await Promise.all(
+		items.map(collection => db.collection(collection.name).aggregate([
+			{ $collStats: { latencyStats: {}, storageStats: {}, count: {} } },
+		]))
+	);
 }
 
 mongoModule.close = async function () {
 	await client.close();
+	if (mongoModule.objectCache) {
+		mongoModule.objectCache.reset();
+	}
 };
 
 require('./mongo/main')(mongoModule);

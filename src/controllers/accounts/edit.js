@@ -5,6 +5,7 @@ const meta = require('../../meta');
 const helpers = require('../helpers');
 const groups = require('../../groups');
 const privileges = require('../../privileges');
+const plugins = require('../../plugins');
 const accountHelpers = require('./helpers');
 const file = require('../../file');
 
@@ -19,9 +20,10 @@ editController.get = async function (req, res) {
 		groups: _groups,
 		groupTitleArray,
 		allowMultipleBadges,
-	}, canUseSignature] = await Promise.all([
+	}, canUseSignature, canManageUsers] = await Promise.all([
 		accountHelpers.getUserDataByUserSlug(req.params.userslug, req.uid, req.query),
 		privileges.global.can('signature', req.uid),
+		privileges.admin.can('admin:users', req.uid),
 	]);
 
 	const payload = {};
@@ -37,6 +39,11 @@ editController.get = async function (req, res) {
 	payload.defaultAvatar = user.getDefaultAvatar();
 
 	payload.groups = _groups.filter(g => g && g.userTitleEnabled && !groups.isPrivilegeGroup(g.name) && g.name !== 'registered-users');
+
+	if (req.uid === res.locals.uid || canManageUsers) {
+		const { associations } = await plugins.hooks.fire('filter:auth.list', { uid: res.locals.uid, associations: [] });
+		payload.sso = associations;
+	}
 
 	if (!allowMultipleBadges) {
 		payload.groupTitle = groupTitleArray[0];
@@ -83,16 +90,7 @@ editController.username = async function (req, res, next) {
 
 editController.email = async function (req, res, next) {
 	const targetUid = await user.getUidByUserslug(req.params.userslug);
-	if (!targetUid) {
-		return next();
-	}
-
-	const [isAdminOrGlobalMod, canEdit] = await Promise.all([
-		user.isAdminOrGlobalMod(req.uid),
-		privileges.users.canEdit(req.uid, targetUid),
-	]);
-
-	if (!isAdminOrGlobalMod && !canEdit) {
+	if (!targetUid || req.uid !== parseInt(targetUid, 10)) {
 		return next();
 	}
 

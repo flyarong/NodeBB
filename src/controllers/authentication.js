@@ -93,7 +93,7 @@ authenticationController.register = async function (req, res) {
 		}
 
 		if (userData.password !== userData['password-confirm']) {
-			throw new Error('[[user:change_password_error_match]]');
+			throw new Error('[[user:change-password-error-match]]');
 		}
 
 		if (userData.password.length > 512) {
@@ -101,6 +101,8 @@ authenticationController.register = async function (req, res) {
 		}
 
 		user.isPasswordValid(userData.password);
+
+		await plugins.hooks.fire('filter:password.check', { password: userData.password, uid: 0, userData: userData });
 
 		res.locals.processLogin = true; // set it to false in plugin if you wish to just register only
 		await plugins.hooks.fire('filter:register.check', { req: req, res: res, userData: userData });
@@ -210,12 +212,13 @@ authenticationController.registerComplete = async function (req, res) {
 };
 
 authenticationController.registerAbort = async (req, res) => {
-	if (req.uid) {
+	if (req.uid && req.session.registration) {
 		// Email is the only cancelable interstitial
 		delete req.session.registration.updateEmail;
 
 		const { interstitials } = await user.interstitials.get(req, req.session.registration);
 		if (!interstitials.length) {
+			delete req.session.registration;
 			return res.redirect(nconf.get('relative_path') + (req.session.returnTo || '/'));
 		}
 	}
@@ -377,15 +380,12 @@ authenticationController.onSuccessfulLogin = async function (req, uid) {
 			new Promise((resolve) => {
 				req.session.save(resolve);
 			}),
-			user.auth.addSession(uid, req.sessionID),
+			user.auth.addSession(uid, req.sessionID, uuid),
 			user.updateLastOnlineTime(uid),
 			user.onUserOnline(uid, Date.now()),
 			analytics.increment('logins'),
 			db.incrObjectFieldBy('global', 'loginCount', 1),
 		]);
-		if (uid > 0) {
-			await db.setObjectField(`uid:${uid}:sessionUUID:sessionId`, uuid, req.sessionID);
-		}
 
 		// Force session check for all connected socket.io clients with the same session id
 		sockets.in(`sess_${req.sessionID}`).emit('checkSession', uid);

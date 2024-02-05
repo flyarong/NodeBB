@@ -124,7 +124,7 @@ define('forum/register', [
 			showError(username_notify, '[[error:invalid-username]]');
 		} else {
 			Promise.allSettled([
-				api.head(`/users/bySlug/${username}`, {}),
+				api.head(`/users/bySlug/${userslug}`, {}),
 				api.head(`/groups/${username}`, {}),
 			]).then((results) => {
 				if (results.every(obj => obj.status === 'rejected')) {
@@ -146,7 +146,7 @@ define('forum/register', [
 			utils.assertPasswordValidity(password, zxcvbn);
 
 			if (password === $('#username').val()) {
-				throw new Error('[[user:password_same_as_username]]');
+				throw new Error('[[user:password-same-as-username]]');
 			}
 
 			showSuccess(password_notify, successIcon);
@@ -155,7 +155,7 @@ define('forum/register', [
 		}
 
 		if (password !== password_confirm && password_confirm !== '') {
-			showError(password_confirm_notify, '[[user:change_password_error_match]]');
+			showError(password_confirm_notify, '[[user:change-password-error-match]]');
 		}
 	}
 
@@ -168,7 +168,7 @@ define('forum/register', [
 		}
 
 		if (password !== password_confirm) {
-			showError(password_confirm_notify, '[[user:change_password_error_match]]');
+			showError(password_confirm_notify, '[[user:change-password-error-match]]');
 		} else {
 			showSuccess(password_confirm_notify, successIcon);
 		}

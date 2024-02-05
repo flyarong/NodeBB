@@ -4,7 +4,6 @@
 const fs = require('fs');
 const util = require('util');
 const path = require('path');
-const os = require('os');
 const nconf = require('nconf');
 const express = require('express');
 const chalk = require('chalk');
@@ -85,10 +84,7 @@ exports.listen = async function () {
 	await initializeNodeBB();
 	winston.info('🎉 NodeBB Ready');
 
-	require('./socket.io').server.emit('event:nodebb.ready', {
-		'cache-buster': meta.config['cache-buster'],
-		hostname: os.hostname(),
-	});
+	require('./socket.io').server.emit('event:nodebb.ready', {});
 
 	plugins.hooks.fire('action:nodebb.ready');
 
@@ -110,6 +106,9 @@ async function initializeNodeBB() {
 	await flags.init();
 	await analytics.init();
 	await topicEvents.init();
+	if (nconf.get('runJobs')) {
+		await require('./widgets').moveMissingAreasToDrafts();
+	}
 }
 
 function setupExpressApp(app) {
@@ -176,8 +175,12 @@ function setupExpressApp(app) {
 	app.use(middleware.processRender);
 	auth.initialize(app, middleware);
 	const als = require('./als');
+	const apiHelpers = require('./api/helpers');
 	app.use((req, res, next) => {
-		als.run({ uid: req.uid }, next);
+		als.run({
+			uid: req.uid,
+			req: apiHelpers.buildReqObject(req),
+		}, next);
 	});
 	app.use(middleware.autoLocale); // must be added after auth middlewares are added
 
@@ -192,20 +195,22 @@ function setupHelmet(app) {
 		crossOriginOpenerPolicy: { policy: meta.config['cross-origin-opener-policy'] },
 		crossOriginResourcePolicy: { policy: meta.config['cross-origin-resource-policy'] },
 		referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+		crossOriginEmbedderPolicy: !!meta.config['cross-origin-embedder-policy'],
 	};
 
-	if (!meta.config['cross-origin-embedder-policy']) {
-		options.crossOriginEmbedderPolicy = false;
-	}
 	if (meta.config['hsts-enabled']) {
 		options.hsts = {
-			maxAge: meta.config['hsts-maxage'],
+			maxAge: Math.max(0, meta.config['hsts-maxage']),
 			includeSubDomains: !!meta.config['hsts-subdomains'],
 			preload: !!meta.config['hsts-preload'],
 		};
 	}
 
-	app.use(helmet(options));
+	try {
+		app.use(helmet(options));
+	} catch (err) {
+		winston.error(`[startup] unable to initialize helmet \n${err.stack}`);
+	}
 }
 
 

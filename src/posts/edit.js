@@ -84,7 +84,7 @@ module.exports = function (Posts) {
 
 		await topics.notifyFollowers(returnPostData, data.uid, {
 			type: 'post-edit',
-			bodyShort: translator.compile('notifications:user_edited_post', editor.username, topic.title),
+			bodyShort: translator.compile('notifications:user-edited-post', editor.username, topic.title),
 			nid: `edit_post:${data.pid}:uid:${data.uid}`,
 		});
 		await topics.syncBacklinks(returnPostData);
@@ -112,7 +112,7 @@ module.exports = function (Posts) {
 			return {
 				tid: tid,
 				cid: topicData.cid,
-				title: validator.escape(String(topicData.title)),
+				title: topicData.title,
 				isMainPost: false,
 				renamed: false,
 				tagsupdated: false,
@@ -186,7 +186,7 @@ module.exports = function (Posts) {
 			throw new Error('[[error:no-privileges]]');
 		}
 		const isMain = parseInt(data.pid, 10) === parseInt(topicData.mainPid, 10);
-		if (isMain && (isNaN(data.timestamp) || data.timestamp < Date.now())) {
+		if (isMain && isNaN(data.timestamp)) {
 			throw new Error('[[error:invalid-data]]');
 		}
 	}

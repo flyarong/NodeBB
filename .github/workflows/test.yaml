@@ -5,12 +5,10 @@ on:
     branches:
       - master
       - develop
-      - bootstrap5
   pull_request:
     branches:
       - master
       - develop
-      - bootstrap5
 
 defaults:
   run:
@@ -29,19 +27,19 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        node: [16, 18]
+        node: [18, 20]
         database: [mongo-dev, mongo, redis, postgres]
         include:
           # only run coverage once
           - os: ubuntu-latest
-            node: 16
+            node: 18
             coverage: true
           # test under development once
           - database: mongo-dev
             test_env: development
           # only run eslint once
           - os: ubuntu-latest
-            node: 16
+            node: 18
             database: mongo-dev
             lint: true
     runs-on: ${{ matrix.os }}
@@ -50,7 +48,7 @@ jobs:
 
     services:
       postgres:
-        image: 'postgres:15-alpine'
+        image: 'postgres:16-alpine'
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -65,7 +63,7 @@ jobs:
           - 5432:5432
 
       redis:
-        image: 'redis:2.8.23'
+        image: 'redis:7.2.3'
         # Set health checks to wait until redis has started
         options: >-
           --health-cmd "redis-cli ping"
@@ -77,18 +75,18 @@ jobs:
           - 6379:6379
 
       mongo:
-        image: 'mongo:3.7'
+        image: 'mongo:7.0'
         ports:
           # Maps port 27017 on service container to the host
           - 27017:27017
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - run: cp install/package.json package.json
 
       - name: Install Node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
 
@@ -194,7 +192,7 @@ jobs:
         run: npm run coverage
 
       - name: Test coverage
-        uses: coverallsapp/github-action@v2.1.2
+        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
         if: matrix.coverage
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -208,7 +206,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Coveralls Finished
-        uses: coverallsapp/github-action@v2.1.2
+        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true

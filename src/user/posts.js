@@ -3,6 +3,7 @@
 const db = require('../database');
 const meta = require('../meta');
 const privileges = require('../privileges');
+const groups = require('../groups');
 
 module.exports = function (User) {
 	User.isReadyToPost = async function (uid, cid) {
@@ -13,13 +14,28 @@ module.exports = function (User) {
 		await isReady(uid, cid, 'lastqueuetime');
 	};
 
+	User.checkMuted = async function (uid) {
+		const now = Date.now();
+		const mutedUntil = await User.getUserField(uid, 'mutedUntil');
+		if (mutedUntil > now) {
+			let muteLeft = ((mutedUntil - now) / (1000 * 60));
+			if (muteLeft > 60) {
+				muteLeft = (muteLeft / 60).toFixed(0);
+				throw new Error(`[[error:user-muted-for-hours, ${muteLeft}]]`);
+			} else {
+				throw new Error(`[[error:user-muted-for-minutes, ${muteLeft.toFixed(0)}]]`);
+			}
+		}
+	};
+
 	async function isReady(uid, cid, field) {
 		if (parseInt(uid, 10) === 0) {
 			return;
 		}
-		const [userData, isAdminOrMod] = await Promise.all([
+		const [userData, isAdminOrMod, isMemberOfExempt] = await Promise.all([
 			User.getUserFields(uid, ['uid', 'mutedUntil', 'joindate', 'email', 'reputation'].concat([field])),
 			privileges.categories.isAdminOrMod(cid, uid),
+			groups.isMemberOfAny(uid, meta.config.groupsExemptFromNewUserRestrictions),
 		]);
 
 		if (!userData.uid) {
@@ -30,17 +46,9 @@ module.exports = function (User) {
 			return;
 		}
 
-		const now = Date.now();
-		if (userData.mutedUntil > now) {
-			let muteLeft = ((userData.mutedUntil - now) / (1000 * 60));
-			if (muteLeft > 60) {
-				muteLeft = (muteLeft / 60).toFixed(0);
-				throw new Error(`[[error:user-muted-for-hours, ${muteLeft}]]`);
-			} else {
-				throw new Error(`[[error:user-muted-for-minutes, ${muteLeft.toFixed(0)}]]`);
-			}
-		}
+		await User.checkMuted(uid);
 
+		const now = Date.now();
 		if (now - userData.joindate < meta.config.initialPostDelay * 1000) {
 			throw new Error(`[[error:user-too-new, ${meta.config.initialPostDelay}]]`);
 		}
@@ -48,11 +56,16 @@ module.exports = function (User) {
 		const lasttime = userData[field] || 0;
 
 		if (
+			!isMemberOfExempt &&
 			meta.config.newbiePostDelay > 0 &&
-			meta.config.newbiePostDelayThreshold > userData.reputation &&
+			meta.config.newbieReputationThreshold > userData.reputation &&
 			now - lasttime < meta.config.newbiePostDelay * 1000
 		) {
-			throw new Error(`[[error:too-many-posts-newbie, ${meta.config.newbiePostDelay}, ${meta.config.newbiePostDelayThreshold}]]`);
+			if (meta.config.newbiewPostDelay % 60 === 0) {
+				throw new Error(`[[error:too-many-posts-newbie-minutes, ${Math.floor(meta.config.newbiePostDelay / 60)}, ${meta.config.newbieReputationThreshold}]]`);
+			} else {
+				throw new Error(`[[error:too-many-posts-newbie, ${meta.config.newbiePostDelay}, ${meta.config.newbieReputationThreshold}]]`);
+			}
 		} else if (now - lasttime < meta.config.postDelay * 1000) {
 			throw new Error(`[[error:too-many-posts, ${meta.config.postDelay}]]`);
 		}

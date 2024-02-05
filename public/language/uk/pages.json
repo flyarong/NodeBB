@@ -14,6 +14,7 @@
     "flagged-content": "Оскаржений вміст",
     "ip-blacklist": "Чорний список IP адрес",
     "post-queue": "Черга Постів",
+    "registration-queue": "Registration Queue",
     "users/online": "Користувачі в мережі",
     "users/latest": "Останні користувачі",
     "users/sort-posts": "Користувачі з найбільшою кількістю постів",
@@ -46,7 +47,8 @@
     "account/latest-posts": "Останні дописи від %1",
     "account/topics": "Теми створені %1",
     "account/groups": "Групи %1",
-    "account/watched_categories": "Категорії, за якими спостерігає %1",
+    "account/watched-categories": "Категорії, за якими спостерігає %1",
+    "account/watched-tags": "%1's Watched Tags",
     "account/bookmarks": "Закладки %1",
     "account/settings": "Налаштування користувача",
     "account/settings-of": "Changing settings of %1",
@@ -60,7 +62,7 @@
     "account/uploads": "Завантаження від %1",
     "account/sessions": "Логін-сесії",
     "confirm": "Електронну пошту підтверджено",
-    "maintenance.text": "%1 в данний час на технічному обслуговувані. Завітайте, будь ласка, пізніше.",
+    "maintenance.text": "%1 is currently undergoing maintenance.<br/>Please come back another time.",
     "maintenance.messageIntro": "Крім того, адміністратор залишив це повідомлення:",
     "throttled.text": "%1 в даний час недоступний через надмірне навантаження. Завітайте, будь ласка, пізніше."
 }

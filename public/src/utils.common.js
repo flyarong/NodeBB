@@ -442,7 +442,7 @@ const utils = {
 	makeNumberHumanReadable: function (num, toFixed = 1) {
 		const n = parseInt(num, 10);
 		if (!n) {
-			return num;
+			return String(num);
 		}
 		if (n > 999999) {
 			return (n / 1000000).toFixed(toFixed) + 'm';
@@ -707,9 +707,7 @@ const utils = {
 			const args = arguments;
 			const later = function () {
 				timeout = null;
-				if (!immediate) {
-					func.apply(context, args);
-				}
+				func.apply(context, args);
 			};
 			const callNow = immediate && !timeout;
 			if (!timeout) {

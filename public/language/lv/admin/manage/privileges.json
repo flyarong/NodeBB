@@ -1,4 +1,6 @@
 {
+	"manage-privileges": "Manage Privileges",
+	"discard-changes": "Discard changes",
 	"global": "Globālās",
 	"admin": "Admin",
 	"group-privileges": "Group Privileges",
@@ -6,6 +8,7 @@
 	"edit-privileges": "Edit Privileges",
   	"select-clear-all": "Select/Clear All",
 	"chat": "Sarunāties",
+	"chat-with-privileged": "Chat with Privileged",
 	"upload-images": "Augšupielādēt bildes",
 	"upload-files": "Augšupielādēt failus",
 	"signature": "Parakstīties",
@@ -31,7 +34,7 @@
 	"edit-posts": "Rediģēt rakstus",
 	"view-edit-history": "Skatīt rediģēšanas vēsturi",
 	"delete-posts": "Izdzēst rakstus",
-	"view_deleted": "Skatīt izdzēstos rakstus",
+	"view-deleted": "Skatīt izdzēstos rakstus",
 	"upvote-posts": "Balsot \"par\"",
 	"downvote-posts": "Balsot \"pret\"",
 	"delete-topics": "Izdzēst tematus",

@@ -1,6 +1,5 @@
 'use strict';
 
-const util = require('util');
 const path = require('path');
 const fs = require('fs').promises;
 
@@ -11,6 +10,7 @@ const db = require('../database');
 const user = require('../user');
 const groups = require('../groups');
 const meta = require('../meta');
+const messaging = require('../messaging');
 const flags = require('../flags');
 const privileges = require('../privileges');
 const notifications = require('../notifications');
@@ -18,7 +18,8 @@ const plugins = require('../plugins');
 const events = require('../events');
 const translator = require('../translator');
 const sockets = require('../socket.io');
-const utils = require('../utils');
+
+// const api = require('.');
 
 const usersAPI = module.exports;
 
@@ -141,6 +142,24 @@ usersAPI.updateSettings = async function (caller, data) {
 	return await user.saveSettings(data.uid, payload);
 };
 
+usersAPI.getStatus = async (caller, { uid }) => {
+	const status = await db.getObjectField(`user:${uid}`, 'status');
+	return { status };
+};
+
+usersAPI.getPrivateRoomId = async (caller, { uid } = {}) => {
+	if (!uid) {
+		throw new Error('[[error:invalid-data]]');
+	}
+
+	let roomId = await messaging.hasPrivateChat(caller.uid, uid);
+	roomId = parseInt(roomId, 10);
+
+	return {
+		roomId: roomId > 0 ? roomId : null,
+	};
+};
+
 usersAPI.changePassword = async function (caller, data) {
 	await user.changePassword(caller.uid, Object.assign(data, { ip: caller.ip }));
 	await events.log({
@@ -163,11 +182,11 @@ usersAPI.follow = async function (caller, data) {
 
 	const notifObj = await notifications.create({
 		type: 'follow',
-		bodyShort: `[[notifications:user_started_following_you, ${displayname}]]`,
+		bodyShort: `[[notifications:user-started-following-you, ${displayname}]]`,
 		nid: `follow:${data.uid}:uid:${caller.uid}`,
 		from: caller.uid,
 		path: `/uid/${data.uid}/followers`,
-		mergeId: 'notifications:user_started_following_you',
+		mergeId: 'notifications:user-started-following-you',
 	});
 	if (!notifObj) {
 		return;
@@ -308,46 +327,26 @@ usersAPI.unmute = async function (caller, data) {
 };
 
 usersAPI.generateToken = async (caller, { uid, description }) => {
+	const api = require('.');
 	await hasAdminPrivilege(caller.uid, 'settings');
 	if (parseInt(uid, 10) !== parseInt(caller.uid, 10)) {
 		throw new Error('[[error:invalid-uid]]');
 	}
 
-	const settings = await meta.settings.get('core.api');
-	settings.tokens = settings.tokens || [];
-
-	const newToken = {
-		token: utils.generateUUID(),
-		uid: caller.uid,
-		description: description || '',
-		timestamp: Date.now(),
-	};
-	settings.tokens.push(newToken);
-	await meta.settings.set('core.api', settings);
-
-	return newToken;
+	const tokenObj = await api.utils.tokens.generate({ uid, description });
+	return tokenObj.token;
 };
 
 usersAPI.deleteToken = async (caller, { uid, token }) => {
+	const api = require('.');
 	await hasAdminPrivilege(caller.uid, 'settings');
 	if (parseInt(uid, 10) !== parseInt(caller.uid, 10)) {
 		throw new Error('[[error:invalid-uid]]');
 	}
 
-	const settings = await meta.settings.get('core.api');
-	const beforeLen = settings.tokens.length;
-	settings.tokens = settings.tokens.filter(tokenObj => tokenObj.token !== token);
-	if (beforeLen !== settings.tokens.length) {
-		await meta.settings.set('core.api', settings);
-		return true;
-	}
-
-	return false;
+	await api.utils.tokens.delete(token);
+	return true;
 };
-
-const getSessionAsync = util.promisify((sid, callback) => {
-	db.sessionStore.get(sid, (err, sessionObj) => callback(err, sessionObj || null));
-});
 
 usersAPI.revokeSession = async (caller, { uid, uuid }) => {
 	// Only admins or global mods (besides the user themselves) can revoke sessions
@@ -359,7 +358,7 @@ usersAPI.revokeSession = async (caller, { uid, uuid }) => {
 	let _id;
 	for (const sid of sids) {
 		/* eslint-disable no-await-in-loop */
-		const sessionObj = await getSessionAsync(sid);
+		const sessionObj = await db.sessionStoreGet(sid);
 		if (sessionObj && sessionObj.meta && sessionObj.meta.uuid === uuid) {
 			_id = sid;
 			break;
@@ -428,12 +427,18 @@ usersAPI.getInviteGroups = async (caller, { uid }) => {
 };
 
 usersAPI.addEmail = async (caller, { email, skipConfirmation, uid }) => {
-	const canManageUsers = await privileges.admin.can('admin:users', caller.uid);
-	skipConfirmation = canManageUsers && skipConfirmation;
-
-	if (skipConfirmation) {
-		await user.setUserField(uid, 'email', email);
-		await user.email.confirmByUid(uid);
+	const isSelf = parseInt(caller.uid, 10) === parseInt(uid, 10);
+	const canEdit = await privileges.users.canEdit(caller.uid, uid);
+	if (skipConfirmation && canEdit && !isSelf) {
+		if (!email.length) {
+			await user.email.remove(uid);
+		} else {
+			if (!await user.email.available(email)) {
+				throw new Error('[[error:email-taken]]');
+			}
+			await user.setUserField(uid, 'email', email);
+			await user.email.confirmByUid(uid);
+		}
 	} else {
 		await usersAPI.update(caller, { uid, email });
 	}

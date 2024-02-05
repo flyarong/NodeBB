@@ -14,6 +14,7 @@
     "flagged-content": "Flagged Content",
     "ip-blacklist": "IP Blacklist",
     "post-queue": "Post Queue",
+    "registration-queue": "Registration Queue",
     "users/online": "Sisseloginud kasutajad",
     "users/latest": "Hiljutised kasutajad",
     "users/sort-posts": "Kasutajad, kel on enim postitusi",
@@ -46,7 +47,8 @@
     "account/latest-posts": "Latest posts made by %1",
     "account/topics": "Teemad on kirjutanud %1",
     "account/groups": "Kasutaja %1 grupid",
-    "account/watched_categories": "%1's Watched Categories",
+    "account/watched-categories": "%1's Watched Categories",
+    "account/watched-tags": "%1's Watched Tags",
     "account/bookmarks": "%1's Bookmarked Posts",
     "account/settings": "Kasutaja sätted",
     "account/settings-of": "Changing settings of %1",
@@ -60,7 +62,7 @@
     "account/uploads": "Uploads by %1",
     "account/sessions": "Login Sessions",
     "confirm": "Emaili aadress kinnitatud",
-    "maintenance.text": "%1 foorumil on käimas hooldustööd. Palun külastage meid mõne aja pärast uuesti.",
+    "maintenance.text": "%1 is currently undergoing maintenance.<br/>Please come back another time.",
     "maintenance.messageIntro": "Administraator on jätnud ka omaltpoolt sõnumi:",
     "throttled.text": "%1 ei ole hetkel kättesaadav liigse koormuse tõttu. Palun tulge tagasi mõni teine kord."
 }

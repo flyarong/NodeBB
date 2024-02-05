@@ -1,6 +1,8 @@
 'use strict';
 
-define('forum/header/chat', ['components', 'hooks'], function (components, hooks) {
+define('forum/header/chat', [
+	'components', 'hooks', 'api',
+], function (components, hooks, api) {
 	const chat = {};
 
 	chat.prepareDOM = function () {
@@ -23,13 +25,26 @@ define('forum/header/chat', ['components', 'hooks'], function (components, hooks
 		socket.removeListener('event:chats.receive', onChatMessageReceived);
 		socket.on('event:chats.receive', onChatMessageReceived);
 
-		socket.removeListener('event:user_status_change', onUserStatusChange);
-		socket.on('event:user_status_change', onUserStatusChange);
+		socket.removeListener('event:chats.typing', onUserTyping);
+		socket.on('event:chats.typing', onUserTyping);
 
 		socket.removeListener('event:chats.roomRename', onRoomRename);
 		socket.on('event:chats.roomRename', onRoomRename);
 
-		socket.on('event:unread.updateChatCount', function (count) {
+		socket.on('event:unread.updateChatCount', async function (data) {
+			if (data) {
+				const [chatModule, chatPage] = await app.require(['chat', 'forum/chats']);
+				if (
+					chatModule.isFromBlockedUser(data.fromUid) ||
+					chatModule.isLookingAtRoom(data.roomId) ||
+					app.user.uid === parseInt(data.fromUid, 10)
+				) {
+					return;
+				}
+				chatPage.markChatPageElUnread(data);
+			}
+
+			let { count } = await api.get('/chats/unread');
 			const chatIcon = components.get('chat/icon');
 			count = Math.max(0, count);
 			chatIcon.toggleClass('fa-comment', count > 0)
@@ -48,18 +63,17 @@ define('forum/header/chat', ['components', 'hooks'], function (components, hooks
 		requireAndCall('onChatMessageReceived', data);
 	}
 
-	function onUserStatusChange(data) {
-		requireAndCall('onUserStatusChange', data);
+	function onUserTyping(data) {
+		requireAndCall('onUserTyping', data);
 	}
 
 	function onRoomRename(data) {
 		requireAndCall('onRoomRename', data);
 	}
 
-	function requireAndCall(method, param) {
-		require(['chat'], function (chat) {
-			chat[method](param);
-		});
+	async function requireAndCall(method, param) {
+		const chat = await app.require('chat');
+		chat[method](param);
 	}
 
 	return chat;

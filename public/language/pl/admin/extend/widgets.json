@@ -1,10 +1,11 @@
 {
+	"widgets": "Widgets",
 	"available": "Dostępne Widgety",
 	"explanation": "Wybierz widget z menu rozwijalnego i przeciągnij go na wybrane pole z lewej strony.",
 	"none-installed": "Nie odnaleziono widgetów! Aktywuj wtyczkę „widget essentials w panelu sterowania <a href=\"%1\">wtyczek</a>.",
 	"clone-from": "Sklonuj widget z",
 	"containers.available": "Dostępne kontenery",
-	"containers.explanation": "Przeciągnij i upuść na dowolnym, aktywnym widżecie",
+	"containers.explanation": "Drag and drop on top of any widget",
 	"containers.none": "Żadna",
 	"container.well": "Well",
 	"container.jumbotron": "Jumbotron",
@@ -26,5 +27,9 @@
 	"container.placeholder": "Przeciągnij i upuść kontener lub wpisz tutaj HTML.",
 	"show-to-groups": "Pokaż dla grup",
 	"hide-from-groups": "Ukryj dla grup",
-	"hide-on-mobile": "Ukraj na urządzeniach mobilnych"
+	"start-date": "Start date",
+	"end-date": "End date",
+	"hide-on-mobile": "Ukraj na urządzeniach mobilnych",
+	"hide-drafts": "Hide drafts",
+	"show-drafts": "Show drafts"
 }

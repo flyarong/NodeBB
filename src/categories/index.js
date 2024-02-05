@@ -53,6 +53,7 @@ Categories.getCategoryById = async function (data) {
 	category.nextStart = topics.nextStart;
 	category.topic_count = topicCount;
 	category.isWatched = watchState[0] === Categories.watchStates.watching;
+	category.isTracked = watchState[0] === Categories.watchStates.tracking;
 	category.isNotWatched = watchState[0] === Categories.watchStates.notwatching;
 	category.isIgnored = watchState[0] === Categories.watchStates.ignoring;
 	category.parent = parent;
@@ -363,6 +364,13 @@ Categories.buildForSelectCategories = function (categories, fields, parentCid) {
 	const categoriesData = [];
 
 	const rootCategories = categories.filter(category => category && category.parentCid === parentCid);
+
+	rootCategories.sort((a, b) => {
+		if (a.order !== b.order) {
+			return a.order - b.order;
+		}
+		return a.cid - b.cid;
+	});
 
 	rootCategories.forEach(category => recursive(category, categoriesData, '', 0));
 

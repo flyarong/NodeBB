@@ -1,7 +1,6 @@
 'use strict';
 
 const winston = require('winston');
-const async = require('async');
 const nconf = require('nconf');
 const session = require('express-session');
 const semver = require('semver');
@@ -45,9 +44,9 @@ postgresModule.questions = [
 	},
 ];
 
-postgresModule.init = async function () {
+postgresModule.init = async function (opts) {
 	const { Pool } = require('pg');
-	const connOptions = connection.getConnectionOptions();
+	const connOptions = connection.getConnectionOptions(opts);
 	const pool = new Pool(connOptions);
 	postgresModule.pool = pool;
 	postgresModule.client = pool;
@@ -78,9 +77,13 @@ SELECT EXISTS(SELECT *
        EXISTS(SELECT *
                 FROM "information_schema"."routines"
                WHERE "routine_schema" = 'public'
-                 AND "routine_name" = 'nodebb_get_sorted_set_members') c`);
+                 AND "routine_name" = 'nodebb_get_sorted_set_members') c,
+		EXISTS(SELECT *
+				FROM "information_schema"."routines"
+			   WHERE "routine_schema" = 'public'
+				 AND "routine_name" = 'nodebb_get_sorted_set_members_withscores') d`);
 
-	if (res.rows[0].a && res.rows[0].b && res.rows[0].c) {
+	if (res.rows[0].a && res.rows[0].b && res.rows[0].c && res.rows[0].d) {
 		return;
 	}
 
@@ -282,6 +285,21 @@ STABLE
 STRICT
 PARALLEL SAFE`);
 		}
+
+		if (!res.rows[0].d) {
+			await client.query(`
+			CREATE FUNCTION "nodebb_get_sorted_set_members_withscores"(TEXT) RETURNS JSON AS $$
+				SELECT json_agg(json_build_object('value', z."value", 'score', z."score") ORDER BY z."score" ASC) as item
+				  FROM "legacy_object_live" o
+				 INNER JOIN "legacy_zset" z
+						 ON o."_key" = z."_key"
+						AND o."type" = z."type"
+					  WHERE o."_key" = $1
+			$$ LANGUAGE sql
+			STABLE
+			STRICT
+			PARALLEL SAFE`);
+		}
 	} catch (ex) {
 		await client.query(`ROLLBACK`);
 		throw ex;
@@ -325,26 +343,20 @@ ALTER TABLE "session"
 	return done(db);
 };
 
-postgresModule.createIndices = function (callback) {
+postgresModule.createIndices = async function () {
 	if (!postgresModule.pool) {
 		winston.warn('[database/createIndices] database not initialized');
-		return callback();
+		return;
 	}
-
-	const query = postgresModule.pool.query.bind(postgresModule.pool);
-
 	winston.info('[database] Checking database indices.');
-	async.series([
-		async.apply(query, `CREATE INDEX IF NOT EXISTS "idx__legacy_zset__key__score" ON "legacy_zset"("_key" ASC, "score" DESC)`),
-		async.apply(query, `CREATE INDEX IF NOT EXISTS "idx__legacy_object__expireAt" ON "legacy_object"("expireAt" ASC)`),
-	], (err) => {
-		if (err) {
-			winston.error(`Error creating index ${err.message}`);
-			return callback(err);
-		}
+	try {
+		await postgresModule.pool.query(`CREATE INDEX IF NOT EXISTS "idx__legacy_zset__key__score" ON "legacy_zset"("_key" ASC, "score" DESC)`);
+		await postgresModule.pool.query(`CREATE INDEX IF NOT EXISTS "idx__legacy_object__expireAt" ON "legacy_object"("expireAt" ASC)`);
 		winston.info('[database] Checking database indices done!');
-		callback();
-	});
+	} catch (err) {
+		winston.error(`Error creating index ${err.message}`);
+		throw err;
+	}
 };
 
 postgresModule.checkCompatibility = function (callback) {

@@ -14,6 +14,7 @@
     "flagged-content": "Садржај означен заставицом",
     "ip-blacklist": "Црна листа IP адреса",
     "post-queue": "Порука на чекању",
+    "registration-queue": "Регистрација на чекању",
     "users/online": "Корисници на мрежи",
     "users/latest": "Најновији корисници",
     "users/sort-posts": "Корисници са највише порука",
@@ -46,7 +47,8 @@
     "account/latest-posts": "Најновије поруке од %1",
     "account/topics": "Теме од %1",
     "account/groups": "Групе корисника %1",
-    "account/watched_categories": "Надгледане категорије корисника %1",
+    "account/watched-categories": "Надгледане категорије корисника %1",
+    "account/watched-tags": "Надгледане ознаке %1",
     "account/bookmarks": "Омиљене поруке корисника $1",
     "account/settings": "Корисничка подешавања",
     "account/settings-of": "Промена подешавања од %1",
@@ -60,7 +62,7 @@
     "account/uploads": "Отпремио %1",
     "account/sessions": "Сесије пријављивања",
     "confirm": "Е-пошта је потврђена.",
-    "maintenance.text": "%1 је тренутно у фази одржавања. Молимо, навратите касније.",
+    "maintenance.text": "%1 је тренутно у фази одржавања.<br/>Молимо, навратите касније.",
     "maintenance.messageIntro": "Додатно, администратор је оставио ову поруку:",
     "throttled.text": "%1 је тренутно недоступан због прекомерног оптерећења. Молимо, навратите касније."
 }

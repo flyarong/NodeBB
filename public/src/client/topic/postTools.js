@@ -11,7 +11,8 @@ define('forum/topic/postTools', [
 	'bootbox',
 	'alerts',
 	'hooks',
-], function (share, navigator, components, translator, votes, api, bootbox, alerts, hooks) {
+	'helpers',
+], function (share, navigator, components, translator, votes, api, bootbox, alerts, hooks, helpers) {
 	const PostTools = {};
 
 	let staleReplyAnyway = false;
@@ -38,6 +39,9 @@ define('forum/topic/postTools', [
 		$('[component="topic"]').on('show.bs.dropdown', '.moderator-tools', function () {
 			const $this = $(this);
 			const dropdownMenu = $this.find('.dropdown-menu');
+			const { top } = this.getBoundingClientRect();
+			$this.toggleClass('dropup', top > window.innerHeight / 2);
+
 			if (dropdownMenu.attr('data-loaded')) {
 				return;
 			}
@@ -85,8 +89,8 @@ define('forum/topic/postTools', [
 
 	PostTools.updatePostCount = function (postCount) {
 		const postCountEl = components.get('topic/post-count');
-		postCountEl.html(postCount).attr('title', postCount);
-		utils.makeNumbersHumanReadable(postCountEl);
+		postCountEl.attr('title', postCount)
+			.html(helpers.humanReadableNumber(postCount));
 		navigator.setCount(postCount);
 	};
 
@@ -109,7 +113,7 @@ define('forum/topic/postTools', [
 		});
 
 		$('.topic').on('click', '[component="topic/reply-as-topic"]', function () {
-			translator.translate('[[topic:link_back, ' + ajaxify.data.titleRaw + ', ' + config.relative_path + '/topic/' + ajaxify.data.slug + ']]', function (body) {
+			translator.translate(`[[topic:link-back, ${ajaxify.data.titleRaw}, ${config.relative_path}/topic/${ajaxify.data.slug}]]`, function (body) {
 				hooks.fire('action:composer.topic.new', {
 					cid: ajaxify.data.cid,
 					body: body,
@@ -277,17 +281,17 @@ define('forum/topic/postTools', [
 				hooks.fire('action:composer.addQuote', {
 					tid: tid,
 					pid: toPid,
-					topicName: ajaxify.data.titleRaw,
+					title: ajaxify.data.titleRaw,
 					username: username,
-					text: selectedNode.text,
+					body: selectedNode.text,
 					selectedPid: selectedNode.pid,
 				});
 			} else {
 				hooks.fire('action:composer.post.new', {
 					tid: tid,
 					pid: toPid,
-					topicName: ajaxify.data.titleRaw,
-					text: username ? username + ' ' : ($('[component="topic/quickreply/text"]').val() || ''),
+					title: ajaxify.data.titleRaw,
+					body: username ? username + ' ' : ($('[component="topic/quickreply/text"]').val() || ''),
 				});
 			}
 		});
@@ -305,7 +309,7 @@ define('forum/topic/postTools', [
 					tid: tid,
 					pid: toPid,
 					username: username,
-					topicName: ajaxify.data.titleRaw,
+					title: ajaxify.data.titleRaw,
 					text: text,
 				});
 			}
@@ -313,13 +317,9 @@ define('forum/topic/postTools', [
 			if (selectedNode.text && toPid && toPid === selectedNode.pid) {
 				return quote(selectedNode.text);
 			}
-			socket.emit('posts.getRawPost', toPid, function (err, post) {
-				if (err) {
-					return alerts.error(err);
-				}
 
-				quote(post);
-			});
+			const { content } = await api.get(`/posts/${toPid}/raw`);
+			quote(content);
 		});
 	}
 
@@ -375,12 +375,12 @@ define('forum/topic/postTools', [
 					slug = slugify(post.attr('data-username'), true);
 					if (!slug) {
 						if (post.attr('data-uid') !== '0') {
-							slug = '[[global:former_user]]';
+							slug = '[[global:former-user]]';
 						} else {
 							slug = '[[global:guest]]';
 						}
 					}
-					if (slug && slug !== '[[global:former_user]]' && slug !== '[[global:guest]]') {
+					if (slug && slug !== '[[global:former-user]]' && slug !== '[[global:guest]]') {
 						slug = '@' + slug;
 					}
 					resolve(slug);
@@ -410,7 +410,7 @@ define('forum/topic/postTools', [
 			return;
 		}
 
-		bootbox.confirm('[[topic:post_' + action + '_confirm]]', function (confirm) {
+		bootbox.confirm('[[topic:post-' + action + '-confirm]]', function (confirm) {
 			if (!confirm) {
 				return;
 			}
@@ -431,7 +431,14 @@ define('forum/topic/postTools', [
 	}
 
 	function showStaleWarning(callback) {
-		const staleThreshold = Math.min(Date.now() - (1000 * 60 * 60 * 24 * ajaxify.data.topicStaleDays), 8640000000000000);
+		const topicStaleDays = parseInt(ajaxify.data.topicStaleDays, 10);
+		if (!topicStaleDays) {
+			return callback();
+		}
+		const staleThreshold = Math.min(
+			Date.now() - (1000 * 60 * 60 * 24 * ajaxify.data.topicStaleDays),
+			8640000000000000
+		);
 		if (staleReplyAnyway || ajaxify.data.lastposttime >= staleThreshold) {
 			return callback();
 		}
@@ -441,7 +448,7 @@ define('forum/topic/postTools', [
 			message: '[[topic:stale.warning]]',
 			buttons: {
 				reply: {
-					label: '[[topic:stale.reply_anyway]]',
+					label: '[[topic:stale.reply-anyway]]',
 					className: 'btn-link',
 					callback: function () {
 						staleReplyAnyway = true;
@@ -452,7 +459,7 @@ define('forum/topic/postTools', [
 					label: '[[topic:stale.create]]',
 					className: 'btn-primary',
 					callback: function () {
-						translator.translate('[[topic:link_back, ' + ajaxify.data.title + ', ' + config.relative_path + '/topic/' + ajaxify.data.slug + ']]', function (body) {
+						translator.translate(`[[topic:link-back, ${ajaxify.data.title}, ${config.relative_path}/topic/${ajaxify.data.slug}]]`, function (body) {
 							hooks.fire('action:composer.topic.new', {
 								cid: ajaxify.data.cid,
 								body: body,

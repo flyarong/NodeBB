@@ -14,6 +14,7 @@
     "flagged-content": "Megjelölt tartalom",
     "ip-blacklist": "IP tiltólista",
     "post-queue": "Hozzászólás várólista",
+    "registration-queue": "Registration Queue",
     "users/online": "Elérhető felhasználok",
     "users/latest": "Legújabb felhasználók",
     "users/sort-posts": "Legtöbbet hozzászóló felhasználók",
@@ -46,7 +47,8 @@
     "account/latest-posts": "%1 által írt utolsó hozzászólások",
     "account/topics": "%1 által létrehozott témakörök",
     "account/groups": "%1 csoportjai",
-    "account/watched_categories": "%1 megfigyelt kategóriái",
+    "account/watched-categories": "%1 megfigyelt kategóriái",
+    "account/watched-tags": "%1's Watched Tags",
     "account/bookmarks": "%1 könyvjelzőzött hozzászólásai",
     "account/settings": "Felhasználói beállítások",
     "account/settings-of": "%1 beállításainak módosítása",
@@ -60,7 +62,7 @@
     "account/uploads": "%1 feltöltései",
     "account/sessions": "Belépési munkamenetek",
     "confirm": "E-mail megerősítve",
-    "maintenance.text": "%1 jelenleg karbantartás alatt van. Kérlek, nézz vissza később!",
+    "maintenance.text": "%1 is currently undergoing maintenance.<br/>Please come back another time.",
     "maintenance.messageIntro": "Ezenkívúl, az adminisztrátor ezt az üzenetet hagyta:",
     "throttled.text": "A(z) %1 jelenleg nem érhető el túlterheltség miatt. Kérlek, nézz vissza később."
 }

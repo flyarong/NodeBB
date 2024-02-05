@@ -8,7 +8,8 @@ define('forum/account/edit', [
 	'hooks',
 	'bootbox',
 	'alerts',
-], function (header, picture, translator, api, hooks, bootbox, alerts) {
+	'admin/modules/change-email',
+], function (header, picture, translator, api, hooks, bootbox, alerts, changeEmail) {
 	const AccountEdit = {};
 
 	AccountEdit.init = function () {
@@ -25,6 +26,19 @@ define('forum/account/edit', [
 		updateSignature();
 		updateAboutMe();
 		handleGroupSort();
+
+		if (!ajaxify.data.isSelf && ajaxify.data.canEdit) {
+			$(`a[href="${config.relative_path}/user/${ajaxify.data.userslug}/edit/email"]`).on('click', () => {
+				changeEmail.init({
+					uid: ajaxify.data.uid,
+					email: ajaxify.data.email,
+					onSuccess: function () {
+						alerts.success('[[user:email-updated]]');
+					},
+				});
+				return false;
+			});
+		}
 	};
 
 	function updateProfile() {
@@ -38,7 +52,7 @@ define('forum/account/edit', [
 		hooks.fire('action:profile.update', userData);
 
 		api.put('/users/' + userData.uid, userData).then((res) => {
-			alerts.success('[[user:profile_update_success]]');
+			alerts.success('[[user:profile-update-success]]');
 
 			if (res.picture) {
 				$('#user-current-picture').attr('src', res.picture);
@@ -54,7 +68,7 @@ define('forum/account/edit', [
 
 	function handleAccountDelete() {
 		$('#deleteAccountBtn').on('click', function () {
-			translator.translate('[[user:delete_account_confirm]]', function (translated) {
+			translator.translate('[[user:delete-account-confirm]]', function (translated) {
 				const modal = bootbox.confirm(translated + '<p><input type="password" class="form-control" id="confirm-password" /></p>', function (confirm) {
 					if (!confirm) {
 						return;

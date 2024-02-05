@@ -49,7 +49,7 @@ module.exports = function (Topics) {
 				tids = await Topics.filterWatchedTids(tids, params.uid);
 			}
 		} else if (params.filter === 'watched') {
-			tids = await db.getSortedSetRevRange(`uid:${params.uid}:followed_tids`, 0, -1);
+			tids = await getWatchedTopics(params);
 		} else if (params.cids) {
 			tids = await getCidTids(params);
 		} else if (params.tags.length) {
@@ -61,6 +61,17 @@ module.exports = function (Topics) {
 		}
 
 		return tids;
+	}
+
+	async function getWatchedTopics(params) {
+		const sortSet = ['recent', 'old'].includes(params.sort) ? 'topics:recent' : `topics:${params.sort}`;
+		const method = params.sort === 'old' ? 'getSortedSetIntersect' : 'getSortedSetRevIntersect';
+		return await db[method]({
+			sets: [sortSet, `uid:${params.uid}:followed_tids`],
+			weights: [1, 0],
+			start: 0,
+			stop: meta.config.recentMaxTopics - 1,
+		});
 	}
 
 	async function getTagTids(params) {
@@ -112,7 +123,9 @@ module.exports = function (Topics) {
 		if (params.term === 'alltime' && !params.cids && !params.tags.length && params.filter !== 'watched' && !params.floatPinned) {
 			return tids;
 		}
-		const topicData = await Topics.getTopicsFields(tids, ['tid', 'lastposttime', 'upvotes', 'downvotes', 'postcount', 'pinned']);
+		const topicData = await Topics.getTopicsFields(tids, [
+			'tid', 'lastposttime', 'upvotes', 'downvotes', 'postcount', 'pinned',
+		]);
 		const sortMap = {
 			recent: sortRecent,
 			old: sortOld,

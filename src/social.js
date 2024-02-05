@@ -3,6 +3,7 @@
 const _ = require('lodash');
 const plugins = require('./plugins');
 const db = require('./database');
+const meta = require('./meta');
 
 const social = module.exports;
 
@@ -17,18 +18,32 @@ social.getPostSharing = async function () {
 		{
 			id: 'facebook',
 			name: 'Facebook',
-			class: 'fa-facebook',
+			class: 'fa-brands fa-facebook',
 		},
 		{
 			id: 'twitter',
-			name: 'Twitter',
-			class: 'fa-twitter',
+			name: 'X (Twitter)',
+			class: 'fa-brands fa-x-twitter',
+		},
+		{
+			id: 'whatsapp',
+			name: 'Whatsapp',
+			class: 'fa-brands fa-whatsapp',
+		},
+		{
+			id: 'telegram',
+			name: 'Telegram',
+			class: 'fa-brands fa-telegram',
+		},
+		{
+			id: 'linkedin',
+			name: 'LinkedIn',
+			class: 'fa-brands fa-linkedin',
 		},
 	];
 	networks = await plugins.hooks.fire('filter:social.posts', networks);
-	const activated = await db.getSetMembers('social:posts.activated');
 	networks.forEach((network) => {
-		network.activated = activated.includes(network.id);
+		network.activated = parseInt(meta.config[`post-sharing-${network.id}`], 10) === 1;
 	});
 
 	social.postSharing = networks;
@@ -41,12 +56,16 @@ social.getActivePostSharing = async function () {
 };
 
 social.setActivePostSharingNetworks = async function (networkIDs) {
+	// keeping for 1.0.0 upgrade script that uses this function
 	social.postSharing = null;
-	await db.delete('social:posts.activated');
 	if (!networkIDs.length) {
 		return;
 	}
-	await db.setAdd('social:posts.activated', networkIDs);
+	const data = {};
+	networkIDs.forEach((id) => {
+		data[`post-sharing-${id}`] = 1;
+	});
+	await db.setObject('config', data);
 };
 
 require('./promisify')(social);
