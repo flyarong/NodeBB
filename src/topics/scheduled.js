@@ -8,8 +8,10 @@ const db = require('../database');
 const posts = require('../posts');
 const socketHelpers = require('../socket.io/helpers');
 const topics = require('./index');
+const categories = require('../categories');
 const groups = require('../groups');
 const user = require('../user');
+const plugins = require('../plugins');
 
 const Scheduled = module.exports;
 
@@ -58,6 +60,7 @@ Scheduled.pin = async function (tid, topicData) {
 		db.sortedSetAdd(`cid:${topicData.cid}:tids:pinned`, Date.now(), tid),
 		db.sortedSetsRemove([
 			`cid:${topicData.cid}:tids`,
+			`cid:${topicData.cid}:tids:create`,
 			`cid:${topicData.cid}:tids:posts`,
 			`cid:${topicData.cid}:tids:votes`,
 			`cid:${topicData.cid}:tids:views`,
@@ -96,6 +99,7 @@ function unpin(tid, topicData) {
 		db.sortedSetRemove(`cid:${topicData.cid}:tids:pinned`, tid),
 		db.sortedSetAddBulk([
 			[`cid:${topicData.cid}:tids`, topicData.lastposttime, tid],
+			[`cid:${topicData.cid}:tids:create`, topicData.timestamp, tid],
 			[`cid:${topicData.cid}:tids:posts`, topicData.postcount, tid],
 			[`cid:${topicData.cid}:tids:votes`, parseInt(topicData.votes, 10) || 0, tid],
 			[`cid:${topicData.cid}:tids:views`, topicData.viewcount, tid],
@@ -115,13 +119,21 @@ async function sendNotifications(uids, topicsData) {
 		}
 	});
 
-	return Promise.all(topicsData.map(
+	await Promise.all(topicsData.map(
 		(t, idx) => user.notifications.sendTopicNotificationToFollowers(t.uid, t, postsData[idx])
+	).concat(
+		postsData.map(p => topics.notifyTagFollowers(p, p.uid))
+	).concat(
+		postsData.map(p => categories.notifyCategoryFollowers(p, p.uid))
 	).concat(
 		topicsData.map(
 			(t, idx) => socketHelpers.notifyNew(t.uid, 'newTopic', { posts: [postsData[idx]], topic: t })
 		)
 	));
+	plugins.hooks.fire('action:topics.scheduled.notify', {
+		posts: postsData,
+		topics: topicsData,
+	});
 }
 
 async function updateUserLastposttimes(uids, topicsData) {

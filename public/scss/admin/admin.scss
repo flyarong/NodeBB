@@ -18,6 +18,7 @@
 @import "settings";
 
 @import "../modules/alerts";
+@import "../modules/scrollbar.scss";
 @import "./modules/selectable";
 @import "./modules/nprogress";
 @import "./modules/search";
@@ -152,11 +153,13 @@ body {
 	}
 }
 
-.dropdown-left .dropdown-menu {
-	--bs-position: start;
+.dropdown-left {
+	[component="category-selector-search"] { left:0!important; }
+	.dropdown-menu { --bs-position: start; }
 }
-.dropdown-right .dropdown-menu {
-	--bs-position: end;
+.dropdown-right {
+	[component="category-selector-search"] { right:0!important;	}
+	.dropdown-menu { --bs-position: end; }
 }
 
 [component="category-selector"] {

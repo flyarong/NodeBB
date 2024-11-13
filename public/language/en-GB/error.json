@@ -179,6 +179,7 @@
 
 	"cant-chat-with-yourself": "You can't chat with yourself!",
 	"chat-restricted": "This user has restricted their chat messages. They must follow you before you can chat with them",
+	"chat-user-blocked": "You have been blocked by this user.",
 	"chat-disabled": "Chat system disabled",
 	"too-many-messages": "You have sent too many messages, please wait awhile.",
 	"invalid-chat-message": "Invalid chat message",
@@ -211,6 +212,8 @@
 	"user-already-flagged": "You have already flagged this user",
 	"post-flagged-too-many-times": "This post has been flagged by others already",
 	"user-flagged-too-many-times": "This user has been flagged by others already",
+	"too-many-post-flags-per-day": "You can only flag %1 post(s) per day",
+	"too-many-user-flags-per-day": "You can only flag %1 user(s) per day",
 	"cant-flag-privileged": "You are not allowed to flag the profiles or content of privileged users (moderators/global moderators/admins)",
 	"cant-locate-flag-report": "Cannot locate flag report",
 	"self-vote": "You cannot vote on your own post",
